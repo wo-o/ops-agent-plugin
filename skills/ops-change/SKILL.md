@@ -642,10 +642,13 @@ dev 브랜치의 `2-1-dev/`·`modules/`·`ansible/`는 CODEOWNERS 무소유라 �
 
 ## dev→main 승격 PR — prod 반영 (에이전트가 열고, 사람이 머지)
 
-`ops_github_open_promotion_pr`는 head=dev, base=main인 브랜치 PR을 연다 —
-파일 저작 없이 dev의 커밋을 그대로 올린다. auto-merge되지 않으며 main
-CODEOWNERS의 사람 승인이 머지 게이트다: BLOCKED 상태로 기다리는 것이 정상이지
-오류가 아니다.
+`ops_github_open_promotion_pr`는 main HEAD에서 딴 스냅샷 브랜치에 dev의
+modules/·ansible/ 최종 상태만 담아 base=main PR을 연다 — dev 브랜치를 통째로
+올리지 않으므로 CODEOWNERS·워크플로·dev 전용 파일이 diff에 실리지 않고 머지
+충돌도 생기지 않는다. tf-plan이 prod plan을 PR 코멘트로 달아 사람이 반영될
+내용을 그대로 리뷰한다. auto-merge되지 않으며 main CODEOWNERS의 사람 승인이
+머지 게이트다: BLOCKED 상태로 기다리는 것이 정상이지 오류가 아니다. 머지되면
+tf-apply(prod)가 자동 실행된다.
 
 순서:
 1. **dev 검증이 선행** — dev 코드 PR 머지 + tf-apply 성공 + read 도구 확인까지
@@ -656,8 +659,8 @@ CODEOWNERS의 사람 승인이 머지 게이트다: BLOCKED 상태로 기다리�
    dev에서 검증한 뒤 승격한다 — 이 판단을 건너뛰고 승격 PR만 열지 않는다.
 3. **PR 열기** — `ops_github_open_promotion_pr(title, reason)`. reason에 dev
    검증 근거(dev PR·apply run 링크)를 넣는다. 이미 열린 승격 PR이 있으면 도구가
-   그 링크를 돌려준다 — 중복으로 열지 않는다. dev와 main에 diff가 없으면
-   `no_change`로 끝난다("이미 반영됨").
+   그 링크를 돌려준다 — 중복으로 열지 않는다. 승격 경로(modules/·ansible/)에
+   dev↔main diff가 없으면 `no_change`로 끝난다("이미 반영됨").
 4. **사람에게 인계 — 실멘션 필수** — PR 링크와 diff 요약(무엇이 승격되는지)을
    보고하면서, 같은 메시지에 §0의 방법으로 읽은 `OPS_INFRA_SLACK_MENTION` 값
    (`<@U…>`/`<!subteam^…>` 포맷 그대로)을 넣어 "main CODEOWNERS 승인·머지해 달라"고

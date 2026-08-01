@@ -22,7 +22,8 @@ surface PR(dev·prod)과 dev 한정 코드 PR(2-1-dev/·modules/·ansible/,
 2026-07-20 개방). apply는 CI(GitHub OIDC)에서만, read는 read 전용 IAM 롤을
 assume한 세션으로만. 서버 상태 변경은 bounded ansible 카탈로그로만 실행한다.
 prod의 IaC 코드는 main에 직접 저작할 수 없다 — 에이전트는 dev→main 승격 PR을
-열 수 있을 뿐(2026-08-01 개방, 파일 저작 없음), 머지는 사람(main CODEOWNERS)이
+열 수 있을 뿐(2026-08-01 개방 — main HEAD 기반 스냅샷 브랜치에 dev에서 검증된
+modules/·ansible/ 상태만 실린다), 머지는 사람(main CODEOWNERS)이
 승인해야 반영되고, 비용 상한은 CI guard의 비용 백스톱이 2차로 강제한다.
 
 ---
@@ -432,7 +433,8 @@ prod 전부·`.tf`는 CODEOWNERS에 따라 사람 승인이 필요하다.
   (Grafana silence · PD incident lifecycle · 온콜 페이지)까지다. 클라우드를 직접
   변경하거나 apply하는 도구는 애초에 모델에 노출되지 않는다 — 반영은 전부 IaC
   repo의 CI가 한다. prod의 IaC 코드는 dev→main 승격 PR(에이전트가 열 수 있음 —
-  파일 저작 없음)을 사람이 승인·머지해야만 닿는다.
+  dev에서 검증된 modules/·ansible/ 상태의 스냅샷만 실림)을 사람이 승인·머지해야만
+  닿는다.
 - 과정 최종 철거용 tf-destroy 워크플로는 Slack 인프라팀 멘션(repo variable
   `INFRA_SLACK_MENTION`) + GitHub Environment(destroy-approval) 승인
   게이트를 거친다. 평시 서비스 삭제(`service_enabled=false` surface PR)도 머지 후

@@ -178,11 +178,100 @@ def open_multi_file_pr(
     }
 
 
+def create_snapshot_branch(
+    repo: str,
+    source_branch: str,
+    base_branch: str,
+    paths: list[str] | tuple[str, ...],
+    branch: str,
+    message: str,
+) -> dict[str, Any]:
+    """`base_branch` HEAD에서 새 브랜치를 만들고, `source_branch`의 `paths`
+    (리포 루트 디렉터리 단위) 최종 상태만 담은 커밋 하나를 얹는다 — 승격 PR용.
+
+    브랜치 전체를 head로 쓰는 PR과 달리 CODEOWNERS·워크플로 등 다른 파일이
+    diff에 실리지 않고, base HEAD에서 방금 만든 브랜치라 머지 충돌이 구조적으로
+    불가능하다(충돌 PR은 GitHub가 test merge commit을 못 만들어 tf-plan/guard가
+    아예 안 돈다 — 2026-08-01 승격 실패의 원인).
+
+    paths의 diff가 없으면 브랜치를 만들지 않고 {"changed": False}를 반환한다.
+    반환: {"changed": True, "branch": branch, "sha": <commit sha>}"""
+    h = _headers()
+
+    def _head_and_tree(ref: str) -> tuple[str, str]:
+        r = http_request("GET", f"{_API}/repos/{repo}/git/ref/heads/{ref}", headers=h)
+        if r.status_code >= 400:
+            raise GitHubAppError(f"get ref {ref} -> {r.status_code} {r.text[:200]}")
+        head_sha = r.json()["object"]["sha"]
+        r = http_request(
+            "GET", f"{_API}/repos/{repo}/git/commits/{head_sha}", headers=h
+        )
+        if r.status_code >= 400:
+            raise GitHubAppError(f"get commit {ref} -> {r.status_code} {r.text[:200]}")
+        return head_sha, r.json()["tree"]["sha"]
+
+    def _root_dir_shas(tree_sha: str) -> dict[str, str]:
+        r = http_request("GET", f"{_API}/repos/{repo}/git/trees/{tree_sha}", headers=h)
+        if r.status_code >= 400:
+            raise GitHubAppError(f"get tree -> {r.status_code} {r.text[:200]}")
+        return {
+            e["path"]: e["sha"] for e in r.json().get("tree", []) if e["type"] == "tree"
+        }
+
+    base_head, base_tree = _head_and_tree(base_branch)
+    _, src_tree = _head_and_tree(source_branch)
+    base_dirs = _root_dir_shas(base_tree)
+    src_dirs = _root_dir_shas(src_tree)
+
+    # 디렉터리 단위 tree SHA 교체 — source의 서브트리를 통째로 가리키므로
+    # 파일 추가·수정·삭제가 모두 반영된다. source에 없는 디렉터리는 승격 대상이
+    # 아니다(디렉터리 자체의 삭제 승격은 다루지 않는다 — 랩 범위 밖).
+    entries = [
+        {"path": p, "mode": "040000", "type": "tree", "sha": src_dirs[p]}
+        for p in paths
+        if p in src_dirs and base_dirs.get(p) != src_dirs[p]
+    ]
+    if not entries:
+        return {"changed": False}
+
+    r = http_request(
+        "POST",
+        f"{_API}/repos/{repo}/git/trees",
+        headers=h,
+        body={"base_tree": base_tree, "tree": entries},
+    )
+    if r.status_code >= 400:
+        raise GitHubAppError(f"create tree -> {r.status_code} {r.text[:200]}")
+    new_tree = r.json()["sha"]
+
+    r = http_request(
+        "POST",
+        f"{_API}/repos/{repo}/git/commits",
+        headers=h,
+        body={"message": message, "tree": new_tree, "parents": [base_head]},
+    )
+    if r.status_code >= 400:
+        raise GitHubAppError(f"create commit -> {r.status_code} {r.text[:200]}")
+    commit_sha = r.json()["sha"]
+
+    r = http_request(
+        "POST",
+        f"{_API}/repos/{repo}/git/refs",
+        headers=h,
+        body={"ref": f"refs/heads/{branch}", "sha": commit_sha},
+    )
+    if r.status_code >= 400:
+        raise GitHubAppError(
+            f"create branch {branch} -> {r.status_code} {r.text[:300]}"
+        )
+    return {"changed": True, "branch": branch, "sha": commit_sha}
+
+
 def open_branch_pr(
     repo: str, head: str, base: str, title: str, body: str
 ) -> dict[str, Any]:
-    """기존 브랜치 `head`를 `base`로 올리는 PR 하나를 연다 — 커밋 저작 없음
-    (승격 PR용: dev에 이미 있는 커밋들을 그대로 올린다). {number, html_url, author} 반환.
+    """기존 브랜치 `head`를 `base`로 올리는 PR 하나를 연다 — 커밋 저작 없음.
+    {number, html_url, author} 반환.
     diff 없음/이미 열림 등 422는 그대로 GitHubAppError로 올려 호출자가 분기한다."""
     r = http_request(
         "POST",
@@ -223,3 +312,26 @@ def find_open_pr(repo: str, head: str, base: str) -> Optional[dict[str, Any]]:
         "html_url": pr["html_url"],
         "author": (pr.get("user") or {}).get("login"),
     }
+
+
+def find_open_pr_by_head_prefix(
+    repo: str, head_prefix: str, base: str
+) -> Optional[dict[str, Any]]:
+    """head 브랜치명이 `head_prefix`로 시작하는 열린 PR을 찾는다(없으면 None) —
+    스냅샷 브랜치명이 매번 달라지는 승격 PR의 중복 방지용."""
+    r = http_request(
+        "GET",
+        f"{_API}/repos/{repo}/pulls?state=open&base={base}&per_page=100",
+        headers=_headers(),
+    )
+    if r.status_code >= 400:
+        raise GitHubAppError(f"list prs base={base} -> {r.status_code} {r.text[:200]}")
+    for pr in r.json():
+        if ((pr.get("head") or {}).get("ref") or "").startswith(head_prefix):
+            return {
+                "number": pr["number"],
+                "html_url": pr["html_url"],
+                "author": (pr.get("user") or {}).get("login"),
+                "head": pr["head"]["ref"],
+            }
+    return None

@@ -979,15 +979,24 @@ def open_code_pr(args: dict, **kwargs: Any) -> str:
         return fail(f"open_code_pr failed: {e}", "")
 
 
-_PROMOTION_HEAD = "dev"
+_PROMOTION_SOURCE = "dev"
 _PROMOTION_BASE = "main"
+_PROMOTION_BRANCH_PREFIX = "promote/"
+# 승격 diff에 실리는 경로 — dev에서 검증된 코드 경로만(디렉터리 단위 스냅샷).
+# dev 브랜치를 통째로 head로 쓰면 CODEOWNERS·워크플로·2-1-dev tfvars가 딸려 와
+# 충돌 시 tf-plan/guard가 못 돌아 플로우가 죽고, 충돌 없으면 dev의 무소유
+# CODEOWNERS가 main을 덮어 prod 게이트가 사라진다(2026-08-01 실측 — 스냅샷 전환 사유).
+_PROMOTION_PATHS = ("modules", "ansible")
 
 
 def open_promotion_pr(args: dict, **kwargs: Any) -> str:
-    """dev→main 승격 PR을 연다(브랜치 대 브랜치 — 커밋 저작 없음).
+    """dev→main 승격 PR을 연다 — main HEAD에서 딴 스냅샷 브랜치에 dev의
+    modules/·ansible/ 최종 상태만 담은 커밋 하나를 얹고, 그 브랜치→main PR.
 
     prod로 가는 유일한 코드 경로. 이 도구는 PR을 열 뿐 prod를 바꾸지 못한다 —
     머지는 main CODEOWNERS(사람 승인)가 게이트하고, apply는 머지 후 CI가 한다.
+    main 기반 스냅샷이라 충돌이 없어 tf-plan이 plan 코멘트를 달고, 머지되면
+    push 트리거 tf-apply가 그 plan을 대조해 그대로 반영한다.
 
     args:
       title   한 줄 요약(PR 제목 — 'promote(dev→main): ' 접두사가 붙는다)
@@ -1012,7 +1021,9 @@ def open_promotion_pr(args: dict, **kwargs: Any) -> str:
             )
         corr = (args.get("correlation_id") or "").strip()
 
-        existing = github_app.find_open_pr(_repo(), _PROMOTION_HEAD, _PROMOTION_BASE)
+        existing = github_app.find_open_pr_by_head_prefix(
+            _repo(), _PROMOTION_BRANCH_PREFIX, _PROMOTION_BASE
+        )
         if existing:
             return ok(
                 pr_url=existing["html_url"],
@@ -1026,35 +1037,57 @@ def open_promotion_pr(args: dict, **kwargs: Any) -> str:
             )
 
         title = f"promote(dev→main): {title_arg}"
+        snapshot = github_app.create_snapshot_branch(
+            _repo(),
+            _PROMOTION_SOURCE,
+            _PROMOTION_BASE,
+            _PROMOTION_PATHS,
+            f"{_PROMOTION_BRANCH_PREFIX}{int(time.time())}",
+            title,
+        )
+        if not snapshot.get("changed"):
+            return ok(
+                no_change=True,
+                followup=(
+                    "dev and main have NO diff on the promoted paths "
+                    "(modules/, ansible/) — there is nothing to promote. "
+                    "Report '이미 반영됨(승격할 변경 없음)'. If the user expected a "
+                    "change, the dev-side work has not merged yet — check dev PRs."
+                ),
+            )
         body = (
             "dev→main 승격 PR입니다 — 에이전트가 열었고, 머지는 사람(main "
             "CODEOWNERS 승인)이 합니다.\n\n"
             f"- 요청·dev 검증 근거: {reason}\n"
             + (f"- correlation: {corr}\n" if corr else "")
             + "- Base: `main` — 머지되면 tf-apply(prod)가 실행됩니다.\n"
-            "- 이 PR은 dev 브랜치의 커밋을 그대로 올립니다(에이전트가 main에 "
-            "코드를 저작하지 않음).\n"
+            "- 이 PR은 main HEAD 기반 스냅샷 브랜치로, dev에서 검증된 "
+            "modules/·ansible/ 최종 상태만 담습니다 — CODEOWNERS·워크플로·"
+            "dev 전용 파일은 실리지 않고, 충돌이 생기지 않습니다.\n"
         )
         pr = github_app.open_branch_pr(
-            _repo(), _PROMOTION_HEAD, _PROMOTION_BASE, title, body
+            _repo(), snapshot["branch"], _PROMOTION_BASE, title, body
         )
         followup = (
-            "PROMOTION PR opened (head=dev, base=main). It will NOT auto-merge and "
-            "that is CORRECT: main CODEOWNERS requires a human code-owner approval — "
-            "a BLOCKED mergeState is the expected resting state, not an error. Report "
-            "the PR link and summarize what the diff promotes, then STOP and wait for "
-            "the human; do not poll indefinitely. After a human merges, find the "
-            "tf-apply (prod) run, poll ops_github_get_workflow_run until success, and "
-            "verify with read tools. IMPORTANT: if the promoted code gates resources "
-            'on environment == "dev", merging alone creates NOTHING in prod — land a '
-            "dev code PR adjusting the condition first, then promote."
+            "PROMOTION PR opened (head=snapshot branch cut from main carrying only "
+            "the dev-verified modules/ and ansible/ state, base=main). It will NOT "
+            "auto-merge and that is CORRECT: main CODEOWNERS requires a human "
+            "code-owner approval — a BLOCKED mergeState while waiting is the expected "
+            "resting state, not an error. tf-plan posts the prod plan as a PR comment; "
+            "the human reviews exactly what will apply. Report the PR link and "
+            "summarize what the diff promotes, then STOP and wait for the human; do "
+            "not poll indefinitely. After a human merges, the prod tf-apply runs "
+            "automatically — find the run, poll ops_github_get_workflow_run until "
+            "success, and verify with read tools. IMPORTANT: if the promoted code "
+            'gates resources on environment == "dev", merging alone creates NOTHING '
+            "in prod — land a dev code PR adjusting the condition first, then promote."
         )
         return ok(
             pr_url=pr["html_url"],
             pr_number=pr["number"],
             author=pr["author"],
             summary=title_arg,
-            head=_PROMOTION_HEAD,
+            head=snapshot["branch"],
             base=_PROMOTION_BASE,
             followup=followup,
         )
@@ -1072,8 +1105,9 @@ def open_promotion_pr(args: dict, **kwargs: Any) -> str:
         if "already exists" in msg:
             return fail(
                 msg,
-                "a promotion PR already exists — list open PRs (head=dev, base=main) "
-                "and report that link instead of opening another",
+                "a promotion PR/branch already exists — list open PRs "
+                "(base=main, head=promote/*) and report that link instead of "
+                "opening another",
             )
         return fail(
             msg, "check the app installation + permissions (pull_requests: write)"

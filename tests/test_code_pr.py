@@ -167,15 +167,26 @@ def test_promotion_requires_title_and_reason(monkeypatch):
     assert d["success"] is False and "reason" in d["error"]
 
 
-def test_promotion_opens_dev_to_main_pr(monkeypatch):
+def test_promotion_opens_snapshot_pr(monkeypatch):
     _gate_open(monkeypatch)
-    monkeypatch.setattr(C.github_app, "find_open_pr", lambda repo, head, base: None)
+    monkeypatch.setattr(
+        C.github_app,
+        "find_open_pr_by_head_prefix",
+        lambda repo, prefix, base: None,
+    )
     captured = {}
+
+    def fake_snapshot(repo, source, base, paths, branch, message):
+        captured.update(
+            source=source, snap_base=base, paths=tuple(paths), branch=branch
+        )
+        return {"changed": True, "branch": branch, "sha": "abc123"}
 
     def fake_open(repo, head, base, title, body):
         captured.update(repo=repo, head=head, base=base, title=title, body=body)
         return {"number": 11, "html_url": "https://x/pull/11", "author": "b[bot]"}
 
+    monkeypatch.setattr(C.github_app, "create_snapshot_branch", fake_snapshot)
     monkeypatch.setattr(C.github_app, "open_branch_pr", fake_open)
     d = _d(
         C.open_promotion_pr(
@@ -186,11 +197,18 @@ def test_promotion_opens_dev_to_main_pr(monkeypatch):
         )
     )
     assert d["success"] is True
-    assert captured["head"] == "dev" and captured["base"] == "main"
+    # 스냅샷은 dev의 modules/·ansible/만, main 기반 promote/* 브랜치로 만든다
+    assert captured["source"] == "dev" and captured["snap_base"] == "main"
+    assert captured["paths"] == ("modules", "ansible")
+    assert captured["branch"].startswith("promote/")
+    # PR은 스냅샷 브랜치→main — dev 브랜치를 통째로 올리지 않는다
+    assert captured["head"] == captured["branch"] and captured["base"] == "main"
     assert captured["title"].startswith("promote(dev→main): ")
     # 머지는 사람 몫 — followup이 auto-merge 아님과 human 게이트를 명시한다
     assert "NOT auto-merge" in d["followup"]
     assert "human" in d["followup"]
+    # 충돌 없는 스냅샷이라 tf-plan이 PR에 plan 코멘트를 단다 — followup이 안내
+    assert "tf-plan" in d["followup"]
     # env-gated 코드 함정(dev 조건 고정)을 followup이 경고한다
     assert 'environment == "dev"' in d["followup"]
 
@@ -199,11 +217,12 @@ def test_promotion_returns_existing_open_pr(monkeypatch):
     _gate_open(monkeypatch)
     monkeypatch.setattr(
         C.github_app,
-        "find_open_pr",
-        lambda repo, head, base: {
+        "find_open_pr_by_head_prefix",
+        lambda repo, prefix, base: {
             "number": 5,
             "html_url": "https://x/pull/5",
             "author": "b[bot]",
+            "head": "promote/1700000000",
         },
     )
     d = _d(C.open_promotion_pr({"title": "t", "reason": "r"}))
@@ -213,14 +232,16 @@ def test_promotion_returns_existing_open_pr(monkeypatch):
 
 def test_promotion_no_diff_reports_no_change(monkeypatch):
     _gate_open(monkeypatch)
-    monkeypatch.setattr(C.github_app, "find_open_pr", lambda repo, head, base: None)
-
-    def raise_no_commits(repo, head, base, title, body):
-        raise C.github_app.GitHubAppError(
-            "open pr dev->main -> 422 No commits between main and dev"
-        )
-
-    monkeypatch.setattr(C.github_app, "open_branch_pr", raise_no_commits)
+    monkeypatch.setattr(
+        C.github_app,
+        "find_open_pr_by_head_prefix",
+        lambda repo, prefix, base: None,
+    )
+    monkeypatch.setattr(
+        C.github_app,
+        "create_snapshot_branch",
+        lambda repo, source, base, paths, branch, message: {"changed": False},
+    )
     d = _d(C.open_promotion_pr({"title": "t", "reason": "r"}))
     assert d["success"] is True and d["no_change"] is True
 

@@ -360,8 +360,11 @@ OPS_OPEN_CODE_PR = {
 OPS_OPEN_PROMOTION_PR = {
     "name": "ops_github_open_promotion_pr",
     "description": (
-        "Open the dev→main PROMOTION pull request (head=dev, base=main — no file "
-        "authoring; it carries the dev branch's commits as-is). This is the ONLY agent "
+        "Open the dev→main PROMOTION pull request. The tool cuts a snapshot branch "
+        "from main HEAD carrying ONLY the dev-verified modules/ and ansible/ state "
+        "(never CODEOWNERS, workflows, or dev-only files) and opens it against main — "
+        "conflict-free by construction, so tf-plan posts the prod plan on the PR and "
+        "the human reviews exactly what will apply. This is the ONLY agent "
         "path toward prod IaC code, and it is safe to open: the PR does NOT auto-merge — "
         "main CODEOWNERS requires a human code-owner approval, so prod changes only "
         "after a human merges (BLOCKED mergeState while waiting is expected, not an "
