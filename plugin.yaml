@@ -10,8 +10,9 @@ description: >
   GitHub App bot-identity write paths, PR-only — nothing applies here; CI
   applies after review: the tfvars PR changes exactly one *.tfvars file, and
   the dev-only code PR (2026-07-20) may author IaC under 2-1-dev/, modules/,
-  ansible/ on the dev branch (guard = plan + cost backstop + ansible syntax;
-  prod is reached only via a human-approved dev→main promotion PR).
+  ansible/ on the dev branch (guard = plan + cost backstop + ansible syntax),
+  and the promotion PR (2026-08-01) raises dev→main with no file authoring —
+  prod still changes only after a human merges it (main CODEOWNERS).
 
 # 참고: provides_tools / provides_hooks / requires_env는 MANIFEST METADATA일 뿐이다.
 # 실제 등록은 __init__.py의 register(ctx)에서 일어난다. standalone 플러그인은
@@ -39,6 +40,7 @@ provides_tools:
   # write — 봇 신원 PR 경로(PR-only, apply는 CI만). auto/human은 CODEOWNERS가 정함.
   - ops_github_open_tfvars_pr      # 기존 surface의 값 하나만 변경(무소유면 auto-merge)
   - ops_github_open_code_pr        # dev 한정 IaC 코드 PR(2-1-dev/·modules/·ansible/)
+  - ops_github_open_promotion_pr   # dev→main 승격 PR(파일 저작 없음, 머지=사람 승인)
   - ops_run_ansible_playbook       # bounded remediation playbook 즉시 실행(2-3 incident-response)
   - ops_grafana_silence            # 알람 통지 mute (만료 필수 max 24h, exact-match)
   - ops_pagerduty_manage_incident  # incident ack/snooze/resolve (구성 변경 없음)

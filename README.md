@@ -21,7 +21,8 @@ AI 에이전트(Hermes)가 인프라를 안전하게 운영하게 만드는 실�
 surface PR(dev·prod)과 dev 한정 코드 PR(2-1-dev/·modules/·ansible/,
 2026-07-20 개방). apply는 CI(GitHub OIDC)에서만, read는 read 전용 IAM 롤을
 assume한 세션으로만. 서버 상태 변경은 bounded ansible 카탈로그로만 실행한다.
-prod의 IaC 코드는 여전히 에이전트 손 밖이다 — dev→main 승격 PR을 사람이
+prod의 IaC 코드는 main에 직접 저작할 수 없다 — 에이전트는 dev→main 승격 PR을
+열 수 있을 뿐(2026-08-01 개방, 파일 저작 없음), 머지는 사람(main CODEOWNERS)이
 승인해야 반영되고, 비용 상한은 CI guard의 비용 백스톱이 2차로 강제한다.
 
 ---
@@ -216,9 +217,11 @@ bare name을 시도하고, 둘 다 실패했을 때만 "ops 스킬 미등록" �
 - 기존 surface 어느 것으로도 불가능한 신규 인프라(없는 기능 추가)는 환경으로
   갈린다. dev: ops_github_read_file로 현재 코드를 먼저 읽고
   ops_github_open_code_pr로 dev 브랜치에 코드 PR을 연다(2-1-dev/·modules/·
-  ansible/ 한정 — 절차는 ops-change 스킬의 "dev 코드 PR" 절). prod: 코드 PR을
-  열지 않는다 — dev에서 만들어 검증한 뒤 dev→main 승격 PR을 사람이 승인해야
-  반영된다고 안내한다. 비용 상한(t3.micro/small)은 validation을 고쳐도 CI
+  ansible/ 한정 — 절차는 ops-change 스킬의 "dev 코드 PR" 절). prod: main에
+  코드를 저작하지 않는다 — dev에서 만들어 검증한 뒤
+  ops_github_open_promotion_pr로 dev→main 승격 PR을 열고, 머지는 사람(main
+  CODEOWNERS 승인) 몫임을 안내한다(절차는 ops-change 스킬의 "dev→main 승격
+  PR" 절). 비용 상한(t3.micro/small)은 validation을 고쳐도 CI
   비용 백스톱이 막는다 — 완화 시도 대신 상한을 사용자에게 보고한다.
 - 대상 환경(dev/prod)이 불명확하면 PR 전에 되묻는다. dev의 서비스 삭제는
   auto-merge로 destroy까지 바로 가므로 특히 PR 전에 삭제 의사를 확인받는다.
@@ -229,8 +232,8 @@ You are Hermes Agent, an intelligent AI assistant created by Nous Research. You 
 helpful, knowledgeable, and direct. Be targeted and efficient in your investigations.
 
 이 리포에서 너는 인프라 운영 에이전트다. 읽기는 ops read 도구로, 변경은 PR
-(ops-github-write: tfvars surface PR + dev 한정 코드 PR)로만 하고, 서버 상태
-변경은 bounded ansible 카탈로그로만 실행한다. raw 셸(aws CLI 등)로 조회하지
+(ops-github-write: tfvars surface PR + dev 한정 코드 PR + dev→main 승격 PR)로만
+하고, 서버 상태 변경은 bounded ansible 카탈로그로만 실행한다. raw 셸(aws CLI 등)로 조회하지
 말고 ops 도구를 우선한다.
 
 # 다시 한 번: 모든 응답은 한국어로 작성한다.
@@ -424,11 +427,12 @@ prod 전부·`.tf`는 CODEOWNERS에 따라 사람 승인이 필요하다.
 
 - **read**는 `<project>-hermes-readonly` 롤(ReadOnlyAccess + Cost Explorer read)을
   assume한 세션으로만 이뤄진다 — 경계가 repo 관습이 아니라 IAM에서 성립한다.
-- **write**는 GitHub App 설치 토큰의 PR 경로(tfvars surface PR + dev 한정 코드 PR),
+- **write**는 GitHub App 설치 토큰의 PR 경로(tfvars surface PR + dev 한정 코드 PR + dev→main 승격 PR),
   bounded ansible 카탈로그 실행(workflow_dispatch), 알람 통지 상태 조작
   (Grafana silence · PD incident lifecycle · 온콜 페이지)까지다. 클라우드를 직접
   변경하거나 apply하는 도구는 애초에 모델에 노출되지 않는다 — 반영은 전부 IaC
-  repo의 CI가 한다. prod의 IaC 코드는 dev→main 승격 PR을 사람이 승인해야만 닿는다.
+  repo의 CI가 한다. prod의 IaC 코드는 dev→main 승격 PR(에이전트가 열 수 있음 —
+  파일 저작 없음)을 사람이 승인·머지해야만 닿는다.
 - 과정 최종 철거용 tf-destroy 워크플로는 Slack 인프라팀 멘션(repo variable
   `INFRA_SLACK_MENTION`) + GitHub Environment(destroy-approval) 승인
   게이트를 거친다. 평시 서비스 삭제(`service_enabled=false` surface PR)도 머지 후

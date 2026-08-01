@@ -176,3 +176,50 @@ def open_multi_file_pr(
         "html_url": pr["html_url"],
         "author": (pr.get("user") or {}).get("login"),
     }
+
+
+def open_branch_pr(
+    repo: str, head: str, base: str, title: str, body: str
+) -> dict[str, Any]:
+    """기존 브랜치 `head`를 `base`로 올리는 PR 하나를 연다 — 커밋 저작 없음
+    (승격 PR용: dev에 이미 있는 커밋들을 그대로 올린다). {number, html_url, author} 반환.
+    diff 없음/이미 열림 등 422는 그대로 GitHubAppError로 올려 호출자가 분기한다."""
+    r = http_request(
+        "POST",
+        f"{_API}/repos/{repo}/pulls",
+        headers=_headers(),
+        body={"title": title, "head": head, "base": base, "body": body},
+    )
+    if r.status_code >= 400:
+        raise GitHubAppError(
+            f"open pr {head}->{base} -> {r.status_code} {r.text[:300]}"
+        )
+    pr = r.json()
+    return {
+        "number": pr["number"],
+        "html_url": pr["html_url"],
+        "author": (pr.get("user") or {}).get("login"),
+    }
+
+
+def find_open_pr(repo: str, head: str, base: str) -> Optional[dict[str, Any]]:
+    """head→base로 이미 열린 PR을 찾는다(없으면 None) — 승격 PR 중복 방지용."""
+    owner = repo.split("/")[0]
+    r = http_request(
+        "GET",
+        f"{_API}/repos/{repo}/pulls?state=open&head={owner}:{head}&base={base}",
+        headers=_headers(),
+    )
+    if r.status_code >= 400:
+        raise GitHubAppError(
+            f"list prs {head}->{base} -> {r.status_code} {r.text[:200]}"
+        )
+    prs = r.json()
+    if not prs:
+        return None
+    pr = prs[0]
+    return {
+        "number": pr["number"],
+        "html_url": pr["html_url"],
+        "author": (pr.get("user") or {}).get("login"),
+    }

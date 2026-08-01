@@ -953,8 +953,9 @@ def open_code_pr(args: dict, **kwargs: Any) -> str:
             + "If guard FAILS on the cost backstop, the change used an instance type outside "
             "t3.micro/small (db.t3.micro/small) — do NOT weaken validation or retry with the "
             "same type; report the limit to the user. If the PR shows an EMPTY diff, close it "
-            "and report '이미 반영됨'. For prod: NEVER open code PRs against main — tell the "
-            "user prod needs a human-approved dev→main promotion PR."
+            "and report '이미 반영됨'. For prod: NEVER author code PRs against main — after "
+            "dev verification, open the dev→main promotion PR with "
+            "ops_github_open_promotion_pr (a human merges it via main CODEOWNERS)."
         )
         return ok(
             pr_url=pr["html_url"],
@@ -976,3 +977,106 @@ def open_code_pr(args: dict, **kwargs: Any) -> str:
         return fail(str(e), remediation)
     except Exception as e:  # 핸들러 밖으로 절대 raise하지 않는다
         return fail(f"open_code_pr failed: {e}", "")
+
+
+_PROMOTION_HEAD = "dev"
+_PROMOTION_BASE = "main"
+
+
+def open_promotion_pr(args: dict, **kwargs: Any) -> str:
+    """dev→main 승격 PR을 연다(브랜치 대 브랜치 — 커밋 저작 없음).
+
+    prod로 가는 유일한 코드 경로. 이 도구는 PR을 열 뿐 prod를 바꾸지 못한다 —
+    머지는 main CODEOWNERS(사람 승인)가 게이트하고, apply는 머지 후 CI가 한다.
+
+    args:
+      title   한 줄 요약(PR 제목 — 'promote(dev→main): ' 접두사가 붙는다)
+      reason  요청 맥락 + dev 검증 근거(한국어, PR 본문 — dev PR·apply run 링크 포함)
+      correlation_id  선택 — Slack 스레드 연결용(본문에 기록)
+    """
+    try:
+        if not check_change_requirements():
+            return fail(
+                "change tools unavailable",
+                "Set OPS_GITHUB_APP_ID / _PRIVATE_KEY_PATH / _INSTALLATION_ID / _REPO and install PyJWT.",
+            )
+        title_arg = (args.get("title") or "").strip()
+        if not title_arg:
+            return fail("title is required (one-line summary)", "")
+        reason = (args.get("reason") or "").strip()
+        if not reason:
+            return fail(
+                "reason is required — include the dev verification evidence "
+                "(dev PR + apply run links) in Korean",
+                "",
+            )
+        corr = (args.get("correlation_id") or "").strip()
+
+        existing = github_app.find_open_pr(_repo(), _PROMOTION_HEAD, _PROMOTION_BASE)
+        if existing:
+            return ok(
+                pr_url=existing["html_url"],
+                pr_number=existing["number"],
+                already_open=True,
+                followup=(
+                    "A dev→main promotion PR is ALREADY OPEN — do not open another. "
+                    "Report this PR's link; a human must review and merge it "
+                    "(main CODEOWNERS)."
+                ),
+            )
+
+        title = f"promote(dev→main): {title_arg}"
+        body = (
+            "dev→main 승격 PR입니다 — 에이전트가 열었고, 머지는 사람(main "
+            "CODEOWNERS 승인)이 합니다.\n\n"
+            f"- 요청·dev 검증 근거: {reason}\n"
+            + (f"- correlation: {corr}\n" if corr else "")
+            + "- Base: `main` — 머지되면 tf-apply(prod)가 실행됩니다.\n"
+            "- 이 PR은 dev 브랜치의 커밋을 그대로 올립니다(에이전트가 main에 "
+            "코드를 저작하지 않음).\n"
+        )
+        pr = github_app.open_branch_pr(
+            _repo(), _PROMOTION_HEAD, _PROMOTION_BASE, title, body
+        )
+        followup = (
+            "PROMOTION PR opened (head=dev, base=main). It will NOT auto-merge and "
+            "that is CORRECT: main CODEOWNERS requires a human code-owner approval — "
+            "a BLOCKED mergeState is the expected resting state, not an error. Report "
+            "the PR link and summarize what the diff promotes, then STOP and wait for "
+            "the human; do not poll indefinitely. After a human merges, find the "
+            "tf-apply (prod) run, poll ops_github_get_workflow_run until success, and "
+            "verify with read tools. IMPORTANT: if the promoted code gates resources "
+            'on environment == "dev", merging alone creates NOTHING in prod — land a '
+            "dev code PR adjusting the condition first, then promote."
+        )
+        return ok(
+            pr_url=pr["html_url"],
+            pr_number=pr["number"],
+            author=pr["author"],
+            summary=title_arg,
+            head=_PROMOTION_HEAD,
+            base=_PROMOTION_BASE,
+            followup=followup,
+        )
+    except github_app.GitHubAppError as e:
+        msg = str(e)
+        if "No commits between" in msg:
+            return ok(
+                no_change=True,
+                followup=(
+                    "dev and main have NO diff — there is nothing to promote. "
+                    "Report '이미 반영됨(승격할 변경 없음)'. If the user expected a "
+                    "change, the dev-side work has not merged yet — check dev PRs."
+                ),
+            )
+        if "already exists" in msg:
+            return fail(
+                msg,
+                "a promotion PR already exists — list open PRs (head=dev, base=main) "
+                "and report that link instead of opening another",
+            )
+        return fail(
+            msg, "check the app installation + permissions (pull_requests: write)"
+        )
+    except Exception as e:  # 핸들러 밖으로 절대 raise하지 않는다
+        return fail(f"open_promotion_pr failed: {e}", "")

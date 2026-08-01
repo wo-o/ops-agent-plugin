@@ -180,6 +180,15 @@ _TOOLS: list[tuple[str, str, dict, Any, Any]] = [
         tools_change.open_code_pr,
         tools_change.check_change_requirements,
     ),
+    # dev→main 승격 PR(2026-08-01 개방): 에이전트가 PR을 열고 사람이 머지한다 —
+    # 파일 저작 없음(head=dev를 그대로 올림), 게이트는 main CODEOWNERS 승인.
+    (
+        "ops_github_open_promotion_pr",
+        "ops-github-write",
+        schemas.OPS_OPEN_PROMOTION_PR,
+        tools_change.open_promotion_pr,
+        tools_change.check_change_requirements,
+    ),
     # 두 번째 write 경로 = bounded ansible 실행(PR 없이 즉시). tfvars가
     # apply를 사람 리뷰 후 CI로 미루는 것과 달리 라이브 호스트를 바로 바꾸므로 카탈로그
     # 봉쇄 + --limit fleet 스코프 + dry_run으로 경계를 잡는다. 모니터링 알람 밴드의

@@ -219,8 +219,9 @@ OPS_OPEN_TFVARS_PR = {
         "(e.g. allow an SSH source IP, grow a volume, scale a fleet, add a temporary DB access "
         "grant, provision an S3 bucket). This is the PRIMARY IaC write path — prefer it "
         "whenever a surface fits. If NO existing surface fits: on DEV the agent may author "
-        "the feature itself with ops_github_open_code_pr (dev branch only); on PROD reply "
-        "that prod needs a human-approved dev→main promotion PR. The bot opens the PR; "
+        "the feature itself with ops_github_open_code_pr (dev branch only); on PROD build "
+        "and verify on dev first, then open the dev→main promotion PR with "
+        "ops_github_open_promotion_pr (a human merges it). The bot opens the PR; "
         "whether it AUTO-MERGES or waits for a HUMAN is decided by CODEOWNERS on the repo, NOT "
         "by this tool — unowned surfaces auto-merge once the guard check passes, owned surfaces "
         "(all prod-*) wait for a code-owner review. Do NOT use THIS tool for .tf module "
@@ -327,9 +328,10 @@ OPS_OPEN_CODE_PR = {
         "(4) NEVER weaken variable validation or cost caps — the CI cost backstop "
         "(instance types t3.micro/small, db.t3.micro/small only) fails guard regardless. "
         "The PR auto-merges once guard (plan + cost backstop + ansible syntax) passes, "
-        "because dev CODEOWNERS unowns these paths. PROD: never open code PRs against "
-        "main — prod is reached only via a human-approved dev→main promotion PR; say so "
-        "when asked for a prod feature. File deletion is not supported (a human deletes)."
+        "because dev CODEOWNERS unowns these paths. PROD: never author code PRs against "
+        "main — after dev verification, open the dev→main promotion PR with "
+        "ops_github_open_promotion_pr (a human approves and merges it via main "
+        "CODEOWNERS). File deletion is not supported (a human deletes)."
     ),
     "parameters": _obj(
         {
@@ -351,6 +353,43 @@ OPS_OPEN_CODE_PR = {
             },
         },
         ["files", "title", "reason"],
+    ),
+}
+
+# --------------------------------------------- dev→main 승격 PR (write, 2026-08-01 개방)
+OPS_OPEN_PROMOTION_PR = {
+    "name": "ops_github_open_promotion_pr",
+    "description": (
+        "Open the dev→main PROMOTION pull request (head=dev, base=main — no file "
+        "authoring; it carries the dev branch's commits as-is). This is the ONLY agent "
+        "path toward prod IaC code, and it is safe to open: the PR does NOT auto-merge — "
+        "main CODEOWNERS requires a human code-owner approval, so prod changes only "
+        "after a human merges (BLOCKED mergeState while waiting is expected, not an "
+        "error). WORKFLOW: (1) the change must already be built AND verified on dev "
+        "(dev code PR merged + tf-apply succeeded + read-tool check), (2) check whether "
+        'the code gates resources on environment == "dev" — if so, merging alone '
+        "creates nothing in prod; land a dev code PR adjusting the condition FIRST, "
+        "and say so, (3) open this PR with the dev evidence links in reason, hand the "
+        "link to the human, (4) after the human merges, monitor the prod tf-apply run "
+        "and verify. If dev and main have no diff the tool reports no_change — nothing "
+        "to promote. Never author files against main; that path stays human-owned."
+    ),
+    "parameters": _obj(
+        {
+            "title": {
+                "type": "string",
+                "description": "One-line summary of what is being promoted (PR title becomes 'promote(dev→main): <title>').",
+            },
+            "reason": {
+                "type": "string",
+                "description": "The originating request plus dev verification evidence (dev PR + apply run links), written in KOREAN; goes in the PR body.",
+            },
+            "correlation_id": {
+                "type": "string",
+                "description": "Optional id to tie the PR back to a Slack thread.",
+            },
+        },
+        ["title", "reason"],
     ),
 }
 

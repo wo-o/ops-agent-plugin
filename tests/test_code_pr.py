@@ -151,6 +151,80 @@ def test_requires_title_and_nonempty_files(monkeypatch):
     assert d["success"] is False and "non-empty" in d["error"]
 
 
+# ---------------------------------------------------------------- open_promotion_pr
+
+
+def test_promotion_gate_closed_is_clean_error():
+    d = _d(C.open_promotion_pr({"title": "t", "reason": "r"}))
+    assert d["success"] is False and "remediation" in d
+
+
+def test_promotion_requires_title_and_reason(monkeypatch):
+    _gate_open(monkeypatch)
+    d = _d(C.open_promotion_pr({"title": "", "reason": "r"}))
+    assert d["success"] is False and "title" in d["error"]
+    d = _d(C.open_promotion_pr({"title": "t", "reason": ""}))
+    assert d["success"] is False and "reason" in d["error"]
+
+
+def test_promotion_opens_dev_to_main_pr(monkeypatch):
+    _gate_open(monkeypatch)
+    monkeypatch.setattr(C.github_app, "find_open_pr", lambda repo, head, base: None)
+    captured = {}
+
+    def fake_open(repo, head, base, title, body):
+        captured.update(repo=repo, head=head, base=base, title=title, body=body)
+        return {"number": 11, "html_url": "https://x/pull/11", "author": "b[bot]"}
+
+    monkeypatch.setattr(C.github_app, "open_branch_pr", fake_open)
+    d = _d(
+        C.open_promotion_pr(
+            {
+                "title": "ElastiCache prod 반영",
+                "reason": "dev 검증 완료 — PR #9, apply run 성공",
+            }
+        )
+    )
+    assert d["success"] is True
+    assert captured["head"] == "dev" and captured["base"] == "main"
+    assert captured["title"].startswith("promote(dev→main): ")
+    # 머지는 사람 몫 — followup이 auto-merge 아님과 human 게이트를 명시한다
+    assert "NOT auto-merge" in d["followup"]
+    assert "human" in d["followup"]
+    # env-gated 코드 함정(dev 조건 고정)을 followup이 경고한다
+    assert 'environment == "dev"' in d["followup"]
+
+
+def test_promotion_returns_existing_open_pr(monkeypatch):
+    _gate_open(monkeypatch)
+    monkeypatch.setattr(
+        C.github_app,
+        "find_open_pr",
+        lambda repo, head, base: {
+            "number": 5,
+            "html_url": "https://x/pull/5",
+            "author": "b[bot]",
+        },
+    )
+    d = _d(C.open_promotion_pr({"title": "t", "reason": "r"}))
+    assert d["success"] is True and d["already_open"] is True
+    assert d["pr_url"].endswith("/pull/5")
+
+
+def test_promotion_no_diff_reports_no_change(monkeypatch):
+    _gate_open(monkeypatch)
+    monkeypatch.setattr(C.github_app, "find_open_pr", lambda repo, head, base: None)
+
+    def raise_no_commits(repo, head, base, title, body):
+        raise C.github_app.GitHubAppError(
+            "open pr dev->main -> 422 No commits between main and dev"
+        )
+
+    monkeypatch.setattr(C.github_app, "open_branch_pr", raise_no_commits)
+    d = _d(C.open_promotion_pr({"title": "t", "reason": "r"}))
+    assert d["success"] is True and d["no_change"] is True
+
+
 # ---------------------------------------------------------------- read_repo_file
 
 

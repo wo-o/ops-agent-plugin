@@ -26,6 +26,7 @@ EXPECTED_TOOLS = {
     "ops_github_open_tfvars_pr",
     "ops_github_read_file",
     "ops_github_open_code_pr",
+    "ops_github_open_promotion_pr",
     "ops_run_ansible_playbook",
     "ops_grafana_silence",
     "ops_pagerduty_manage_incident",
@@ -54,7 +55,7 @@ def test_register_wires_exactly_the_manifest_tools():
     ops_plugin.register(ctx)
     names = {t["name"] for t in ctx.tools}
     assert names == EXPECTED_TOOLS
-    assert len(ctx.tools) == 22
+    assert len(ctx.tools) == 23
     # toolset: read 하나 + write 셋
     assert {t["toolset"] for t in ctx.tools} == {
         "ops-read",
@@ -65,6 +66,7 @@ def test_register_wires_exactly_the_manifest_tools():
     assert {t["name"] for t in ctx.tools if t["toolset"] == "ops-github-write"} == {
         "ops_github_open_tfvars_pr",
         "ops_github_open_code_pr",
+        "ops_github_open_promotion_pr",
     }
     # 모든 도구는 name이 등록된 이름과 일치하는 schema를 함께 제공한다
     for t in ctx.tools:
