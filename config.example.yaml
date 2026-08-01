@@ -1,0 +1,47 @@
+# ops 플러그인 — 호스트 config DELTA.
+#
+# 호스트의 ~/.hermes/config.yaml 위에 얹을 변경사항이다. 이것은
+# TEMPLATE이다 — 최종 배선(토큰, 엔드포인트)은 설치 시점에 이뤄진다. 여기엔
+# 시크릿이 하나도 없다.
+
+# 1) 플러그인을 로드한다(standalone 플러그인은 opt-in).
+plugins:
+  enabled: [ops]
+
+# 2) Slack에는 ops toolset을 노출한다. 여기서 hermes-cli를 상속하지 말 것 —
+#    그러면 terminal/file 등이 노출된다. toolset은 권한 경계로 나뉜다(PLUGIN.md §1):
+#    read 1개(ops-read=조회 전부) + write 2개(ops-github-write=봇 PR,
+#    ops-ansible-write=카탈로그).
+platform_toolsets:
+  slack: [ops-read, ops-github-write, ops-ansible-write, ops-monitoring-write]
+known_plugin_toolsets:
+  slack: [ops-read, ops-github-write, ops-ansible-write, ops-monitoring-write]
+  cli: [ops-read, ops-github-write, ops-ansible-write, ops-monitoring-write]
+
+# 3) settings.py가 소비하는 non-secret env(~/.hermes/.env 또는 셸에 설정):
+#   OPS_AWS_READ_ROLE        arn:aws:iam::<your-account-id>:role/<project>-hermes-readonly
+#                                (기본 프로젝트 이름이면 ops-agent-iac-hermes-readonly)
+#   OPS_AWS_REGION           ap-northeast-2        (미설정 시 기본값)
+#   OPS_PROJECT_PREFIX       ops-agent-iac        (IaC 리포 PROJECT_NAME과 동일해야 함)
+#   OPS_GRAFANA_URL                  http://<monitoring-private-ip>:3000  (같은 VPC private pull)
+#   OPS_GRAFANA_PUBLIC_URL   http://<monitoring-public-ip>:3000  (표시용 dashboard 링크 base —
+#                                미설정 시 OPS_GRAFANA_URL 폴백, private 링크는 브라우저에서 안 열림)
+#   OPS_GITHUB_REPO          <owner>/ops-agent-iac (선택, 참고용)
+#   OPS_CLOUDFLARE_ZONE_ID   Cloudflare zone의 id (Cloudflare read 도구용)
+#   OPS_GRAFANA_PROM_UID     Grafana Prometheus datasource uid (기본 "prometheus")
+#   OPS_GRAFANA_LOKI_UID     Grafana Loki datasource uid (기본 "loki")
+#   OPS_PAGERDUTY_FROM_EMAIL PagerDuty 사용자 이메일 — incident write(ack/snooze/
+#                                resolve)의 REST 필수 From 헤더. 없으면 write 도구 미노출
+#
+# 시크릿은 클라이언트가 env에서 읽는다(도구 args에서는 절대 아님). 아래 값들은
+# ~/.hermes/.env (chmod 600)에 둔다:
+#   OPS_GRAFANA_TOKEN          Editor Grafana service-account 토큰 (silence write 포함;
+#                          Viewer면 silence가 403)
+#   GITHUB_TOKEN           fine-grained PAT, 이 리포에 read-only repo scope
+#   OPS_PAGERDUTY_TOKEN        PagerDuty REST API 토큰 — read만 쓰면 read-only 키로 충분,
+#                          ack/snooze/resolve까지 쓰려면 full-access 키
+#   OPS_CLOUDFLARE_READ_TOKEN  read 전용 zone 토큰 (Zone.DNS Read + Zone.WAF Read;
+#                          CI apply 토큰과 별개 — 이 토큰으로는 아무것도 못 바꾼다)
+#
+# 자격증명 누락 => 해당 도구는 그냥 노출되지 않는다(check_fn
+# visibility gate); 로드 시점에 아무 에러도 나지 않는다.

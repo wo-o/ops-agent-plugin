@@ -1,0 +1,129 @@
+name: ops
+version: 0.1.0
+author: ops-agent-iac
+kind: standalone
+description: >
+  Infrastructure ops toolset: read-only lookups plus bounded, PR-only write paths.
+  Reads look up the app fleet by the Role=app tag (scoped to the <project>-* Name prefix) through an assumed read-only IAM role, run
+  NAMED Prometheus/Loki queries, read PR / workflow-run status, list PagerDuty
+  incidents / on-calls, and list Cloudflare DNS records / WAF custom rules.
+  GitHub App bot-identity write paths, PR-only — nothing applies here; CI
+  applies after review: the tfvars PR changes exactly one *.tfvars file, and
+  the dev-only code PR (2026-07-20) may author IaC under 2-1-dev/, modules/,
+  ansible/ on the dev branch (guard = plan + cost backstop + ansible syntax;
+  prod is reached only via a human-approved dev→main promotion PR).
+
+# 참고: provides_tools / provides_hooks / requires_env는 MANIFEST METADATA일 뿐이다.
+# 실제 등록은 __init__.py의 register(ctx)에서 일어난다. standalone 플러그인은
+# opt-in이다 — config plugins.enabled: [ops]로 활성화한 뒤, 새 세션을 시작하거나
+# 게이트웨이를 재시작한다.
+
+provides_tools:
+  # read (read-only 조회)
+  - ops_get_service_health
+  - ops_explain_alert
+  - ops_query_metrics
+  - ops_query_logs
+  - ops_aws_get_service
+  - ops_aws_get_alb_target_health
+  - ops_aws_get_cost_summary
+  - ops_aws_find_unused_candidates
+  - ops_github_get_pr_status
+  - ops_github_get_workflow_run
+  - ops_pagerduty_list_incidents
+  - ops_pagerduty_get_oncall
+  - ops_cloudflare_list_dns_records
+  - ops_cloudflare_list_waf_rules
+  - ops_cloudflare_get_analytics   # 엣지 HTTP analytics(5xx 비율) — Zone Analytics:Read 필요
+  - ops_github_read_file           # IaC 리포 파일 읽기 — 코드 PR 전 현재 내용 확인
+  # write — 봇 신원 PR 경로(PR-only, apply는 CI만). auto/human은 CODEOWNERS가 정함.
+  - ops_github_open_tfvars_pr      # 기존 surface의 값 하나만 변경(무소유면 auto-merge)
+  - ops_github_open_code_pr        # dev 한정 IaC 코드 PR(2-1-dev/·modules/·ansible/)
+  - ops_run_ansible_playbook       # bounded remediation playbook 즉시 실행(2-3 incident-response)
+  - ops_grafana_silence            # 알람 통지 mute (만료 필수 max 24h, exact-match)
+  - ops_pagerduty_manage_incident  # incident ack/snooze/resolve (구성 변경 없음)
+  - ops_pagerduty_page_oncall      # 온콜 실페이지 (Events v2 trigger, 런북 §4 전용, dedup_key 필수)
+
+provides_hooks:
+  - post_tool_call
+
+# 자격증명이 필요한 도구들이 소비하는 자격증명을 문서화한다. 게이팅은 런타임에
+# check_fn(visibility gate)이 한다: 자격증명이 없는 도구는 모델에 아예 노출되지
+# 않는다; 그래도 호출되면 깔끔한 error JSON을 반환한다.
+requires_env:
+  - name: OPS_AWS_READ_ROLE
+    description: >
+      Full ARN of the read-only role to assume for every AWS call
+      (arn:aws:iam::<account-id>:role/<project>-hermes-readonly, created by
+      2-0-setup; default project name ops-agent-iac). The plugin never
+      uses raw local credentials directly — boto3 sessions exist ONLY behind
+      this assume-role.
+    secret: false
+  - name: OPS_PROJECT_PREFIX
+    description: >
+      Project name prefix of the IaC repo resources (default ops-agent-iac).
+      Must match the PROJECT_NAME the IaC repo bootstrap registered; the
+      unused-candidates scan filters SG / IAM role names by "<prefix>-".
+    secret: false
+  - name: OPS_GRAFANA_TOKEN
+    description: >
+      Editor-role Grafana service-account token (paired with OPS_GRAFANA_URL)
+      for the monitoring server. Editor (not Viewer) because ops_grafana_silence
+      writes Alertmanager silences; everything else is still read-only queries
+      and alert-rule state reads.
+    secret: true
+  - name: GITHUB_TOKEN
+    description: >
+      Fine-grained PAT with read-only repo scope on the repo, used for PR
+      status and workflow-run status reads as a FALLBACK — when the GitHub App
+      below is configured, reads use the App installation token and this PAT
+      is unnecessary. No write scope.
+    secret: true
+  - name: OPS_GITHUB_APP_ID
+    description: >
+      GitHub App id (numeric) for the bot write identity — used by the change
+      toolset (ops_github_open_tfvars_pr).
+    secret: false
+  - name: OPS_GITHUB_PRIVATE_KEY_PATH
+    description: >
+      Path to the App's .pem private key (or set OPS_GITHUB_PRIVATE_KEY
+      with the PEM contents inline). Signs the App JWT.
+    secret: true
+  - name: OPS_GITHUB_INSTALLATION_ID
+    description: >
+      Installation id of the App on the repo.
+    secret: false
+  - name: OPS_GITHUB_REPO
+    description: >
+      owner/name of the repo the change toolset writes to (branch + single
+      tfvars file + PR).
+    secret: false
+  - name: OPS_PAGERDUTY_TOKEN
+    description: >
+      PagerDuty REST API token. Reads (incident list, on-call) work with a
+      read-only key; ops_pagerduty_manage_incident (ack/snooze/resolve) needs a
+      full-access key. The plugin never edits schedules/services/policies.
+    secret: true
+  - name: OPS_PAGERDUTY_FROM_EMAIL
+    description: >
+      Valid PagerDuty user email sent as the REST "From" header on incident
+      writes (PagerDuty requires it). Without it the write tool is not exposed.
+    secret: false
+  - name: OPS_PAGERDUTY_ROUTING_KEY
+    description: >
+      Events API v2 integration key of the PagerDuty service
+      (`terraform -chdir=3-1-pagerduty output -raw routing_key`). Consumed by
+      ops_pagerduty_page_oncall — the ONLY incident-creating path now that
+      Grafana alarms notify Slack only. Without it the page tool is not exposed.
+    secret: true
+  - name: OPS_CLOUDFLARE_READ_TOKEN
+    description: >
+      Read-only Cloudflare zone token (Zone.Zone Read + Zone.DNS Read +
+      Zone.WAF Read + Zone Analytics:Read) for the Cloudflare zone, paired
+      with OPS_CLOUDFLARE_ZONE_ID. Deliberately separate from the CI apply
+      token — this one cannot mutate anything.
+    secret: true
+  - name: OPS_CLOUDFLARE_ZONE_ID
+    description: >
+      Zone id of the Cloudflare zone (non-secret identifier).
+    secret: false

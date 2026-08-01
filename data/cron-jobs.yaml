@@ -1,0 +1,58 @@
+# Hermes 정기 cron 카탈로그 — 재구축 시 재등록용 정본(canonical).
+#
+# Hermes 내장 스케줄러(`hermes cron`, 저장소 `~/.hermes/cron/jobs.json`)의 정기 점검
+# cron 3종은 호스트 재구축 시 유실된다(SOUL.md 배선·스킬 동기화와 동류). 이 파일이
+# 그 3종의 정본이다 — 재구축 후 아래 값으로 다시 등록한다. 아래 값은 2026-07-23
+# 라이브 호스트(jobs.json)에서 reconcile 한 실제 등록분이다.
+#
+# 등록 메커니즘: Hermes CLI (in-agent `cronjob` 도구는 인시던트 후속 one-shot 용이고,
+# 이 3종은 CLI 로 등록된 스케줄 리포트다):
+#   ~/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main cron {list,create,run,remove}
+#   (`hermes` 는 PATH 에 없음. 플래그 철자는 `cron create --help` 로 확인 — 아래는
+#    등록에 넣을 파라미터 VALUE 다.)
+# 각 job 공통: skill=ops-operating, deliver=slack:<channel-id>(#alert-ops-agent). 전부
+# read-only 리포트(쓰기·변경 없음). 프롬프트는 도구·채널명을 박지 않고 스킬 라우팅과
+# deliver 대상("이 채널")에 맡긴다 — `tool` 필드는 그 job 이 실제로 태우는 read 도구를
+# 문서화한 것(__init__.py 등록명).
+#
+# 스케줄: unused·cost 는 cron(expr), cf-5xx 는 interval(생성시각 기준 N 분마다) 이다.
+# 호스트 TZ=UTC 확인됨 — cron expr 은 UTC 그대로(00:00 UTC = 09:00 KST).
+#
+# 라이브 Hermes 가 self-improve 로 프롬프트를 다듬으면 그 diff 를 여기로 흡수해
+# 이 파일을 정본으로 유지한다(끄지 않고 diff→흡수→sync).
+
+channel: "#alert-ops-agent"     # deliver = slack:<channel-id> — 실습 채널(#ops-agent) 오염 방지용 alert 채널
+skill: ops-operating            # 3종 공통 라우팅 스킬
+
+jobs:
+  unused-report:
+    schedule: { kind: cron, expr: "0 0 * * *" }   # 매일 00:00 UTC = 09:00 KST
+    tool: ops_aws_find_unused_candidates
+    purpose: >
+      미연결/미사용 후보(unattached EBS, unassociated EIP, orphan SG, 미사용 IAM
+      role 등)를 매일 보고. keep 태그 제외, 삭제 안 함 — 후보 리포트일 뿐.
+    prompt: >-
+      안 쓰는 리소스 후보를 스캔해서 이 채널에 보고해줘. 삭제는 절대 하지 말고
+      후보만. idle과 unused는 다르며 keep 태그는 제외한다.
+
+  cost-report:
+    schedule: { kind: cron, expr: "0 0 * * 1" }   # 매주 월요일 00:00 UTC = 09:00 KST (주간)
+    tool: ops_aws_get_cost_summary
+    purpose: >
+      직전 7일 Cost Explorer 비용 요약(계정 전체, 서비스별 상위). 주 단위 비용 추이 관측.
+    prompt: >-
+      지난 7일 AWS 비용을 서비스별 상위 항목으로 요약해서 이 채널에 보고해줘.
+      계정 전체 기준.
+
+  cf-5xx-report:
+    schedule: { kind: interval, minutes: 360 }    # 6시간마다(생성시각 기준 — cron 정각 아님)
+    tool: ops_cloudflare_get_analytics
+    # 요구 스코프: OPS_CLOUDFLARE_READ_TOKEN 에 Zone Analytics:Read 필수
+    # (DNS/WAF Read 만으로는 analytics authz 에러). 토큰 스코프는 README .env 절 참고.
+    purpose: >
+      Cloudflare 엣지 HTTP 5xx 비율·상태코드 분포를 정기 점검. 5xx 급증은 origin
+      장애 신호라 app 로그·ALB target health 와 함께 본다.
+    prompt: >-
+      Cloudflare 엣지 HTTP 5xx 비율을 확인해서 이 채널에 보고해줘. rate_5xx_pct와
+      상태코드 분포(2xx/3xx/4xx/5xx)를 포함하고, 5xx가 눈에 띄면 origin 상태(앱
+      로그·ALB target health)도 함께 확인해서 알려줘.

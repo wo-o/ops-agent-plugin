@@ -1,0 +1,54 @@
+# Named query 카탈로그: 모델은 자유 형식 PromQL/LogQL 을 작성할 수 없다.
+# 여기서 query_name 을 고르면 핸들러가 검증된 라벨 플레이스홀더를 채운다.
+# blast radius 와 비용을 제한하며, 모든 결과에서 안정적인 쿼리 + dashboard URL 을
+# 인용할 수 있다.
+#
+# 플레이스홀더는 ${name} 형식이다; 핸들러는 검증된 라벨 집합에서만 치환한다
+# (따옴표/중괄호/백슬래시는 거부 — 쿼리 인젝션 없음).
+#
+# 모니터링 스택과의 라벨 계약:
+#   · Prometheus 는 Role=app 태그 기반 ec2_sd 로 서비스 플릿을 발견하고
+#     __meta_ec2_tag_Name -> name 으로 relabel 한다 (node_exporter 타깃).
+#   · Promtail 은 앱 로그(/var/log/app/app.log)를 job="app" + service=<project>-<env>
+#     라벨로 Loki 에 보낸다 (nginx 는 없다 — 앱은 stdlib HTTP :8080 직결).
+
+grafana_base_url_env: OPS_GRAFANA_URL   # 예: http://<monitoring-server-ip>:3000
+
+metrics:
+  cpu_utilization:
+    datasource: prometheus
+    description: 인스턴스의 CPU 사용률 퍼센트 (node_exporter), 5m rate.
+    promql: '100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)'
+    labels: []
+    dashboard: /d/service-overview
+  memory_used_pct:
+    datasource: prometheus
+    description: 인스턴스의 메모리 사용률 퍼센트 (node_exporter MemAvailable/MemTotal).
+    promql: '100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)'
+    labels: []
+    dashboard: /d/service-overview
+  disk_usage_pct:
+    datasource: prometheus
+    description: 인스턴스의 파일시스템 사용률 퍼센트 (node_exporter). `/`(루트)와 `/data`(앱 데이터 볼륨) 시리즈를 모두 반환하며 mountpoint 라벨로 구분한다.
+    promql: '100 * (1 - node_filesystem_avail_bytes{mountpoint=~"/|/data"} / node_filesystem_size_bytes{mountpoint=~"/|/data"})'
+    labels: []
+    dashboard: /d/service-overview
+
+logs:
+  app_5xx:
+    datasource: loki
+    description: 앱 로그(job="app") 중 5xx 응답 또는 ERROR 라인 (pattern 이 없을 때의 기본 쿼리). 패턴은 호출자가 주는 게 아니라 여기에 고정돼 있다.
+    logql: '{job="app"} |~ "(5[0-9]{2}|ERROR)"'
+    labels: []
+  service_pattern:
+    datasource: loki
+    description: 앱 로그(job="app")에서 호출자가 준 리터럴 pattern (정규식이 아니라 부분 문자열)과 일치하는 라인.
+    logql: '{job="app"} |= "${pattern}"'
+    labels: [pattern]
+
+# 쿼리와 무관하게 모든 observability 호출에 적용되는 하드 리밋.
+limits:
+  query_timeout_seconds: 20
+  max_range_hours: 24
+  max_log_lines: 200
+  max_series: 100

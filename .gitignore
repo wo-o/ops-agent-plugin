@@ -1,0 +1,5 @@
+__pycache__/
+.pytest_cache/
+*.pyc
+# runtime audit trail (append-only JSONL written by the post_tool_call hook)
+state/
