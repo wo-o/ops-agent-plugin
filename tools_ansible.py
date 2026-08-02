@@ -71,6 +71,18 @@ _PLAYBOOKS: dict[str, dict[str, Any]] = {
         "desc": "serial 롤링 보안 패치(+필요 시 재부팅, +추가 패키지 설정)",
         "params": {},
     },
+    # 인스턴스 타입 롤링 변경. terraform 경로(ec2_instance_type tfvars)는 두 대를
+    # 병렬 in-place stop/start해 동시 순단 — 이 playbook은 TG 드레인 → stop →
+    # modify → start → healthy 복귀를 serial:1로 수행한다. instance_type은 비용 상한
+    # allowlist(variables.tf와 동일)로 enum 봉쇄. 실행 성공 후 같은 값으로
+    # ec2_instance_type tfvars PR을 머지해 상태를 수렴시켜야 한다 — 실제 타입이
+    # 이미 새 값이라 plan은 no-op, 생략하면 다음 apply가 두 대를 동시에 되돌린다.
+    "instance-resize": {
+        "desc": "인스턴스 타입 롤링 변경(무중단) — TG 드레인 → stop → 타입 변경 → start → healthy 복귀 (serial 1). 완료 후 같은 값으로 ec2_instance_type tfvars PR 머지 필수(상태 수렴)",
+        "params": {
+            "instance_type": {"enum": ["t3.micro", "t3.small"]},
+        },
+    },
     # up==0 no-data(미배포) 케이스의 조치. node_exporter·promtail은 user_data에 없어
     # 프로비저닝·app_version bump(blue-green 교체)마다 사라진다. incident-response
     # runbook(STEP 0 no-data 판정)이 이 키를 지시하는데 카탈로그에 없어 에이전트가
