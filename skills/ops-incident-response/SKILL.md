@@ -76,13 +76,17 @@ mutation하면 안 된다. **tfvars PR, ansible dispatch, silence, PagerDuty lif
    모든 단계형 대응에 적용한다.
 6. **UID가 다른 상관 알람도 같은 mutation 게이트에 포함한다.** CPU high, memory high,
    scrape down, app 5xx처럼 서로 다른 룰이 같은 환경·호스트에서 짧은 시간차로 발화할 수 있다.
-   같은 UID 검색만으로 끝내지 말고 `instance`, `name`, 환경, 최근 조치명(`rolling-restart` 등)도
+   같은 UID 검색만으로 끝내지 말고 `instance`, `name`, 환경, 최근 조치명(`rolling-restart`·
+   `instance-resize` 등)도
    `session_search`한다. 같은 호스트의 기존 run이 **현재 `queued`/`in_progress`이거나 이번
    `active_at`과 겹쳐 시작된 비종료 조치**이면 그 run만 추적하고 새 playbook을 dispatch하지
    않는다. 반대로 이전 run이 `success`로 끝난 뒤 새 `active_at`에 다른 알람이 시작됐다면,
    과거 run의 존재만으로 새 사건을 막지 않는다. 이 경우 이전 조치의 완료 시각·검증 결과와
    새 알람의 시각을 대조하고, 해당 알람 runbook의 진단·서킷 브레이커 기준을 적용한다.
-   ALB가 이미 `draining`이면 상태와 무관하게 새 dispatch를 금지한다. 영향 IP의 CPU 시계열이
+   ALB가 이미 `draining`이면 상태와 무관하게 새 dispatch를 금지한다. `instance-resize`가
+   진행 중이면 인스턴스를 의도적으로 stop하는 조치이므로, 그 호스트의 up==0·no-data·
+   `stopped`는 장애가 아니라 조치 창이다 — monitoring-agents나 rolling-restart를 겹쳐
+   dispatch하지 않고 해당 run 완료를 추적한다. 영향 IP의 CPU 시계열이
    사라진 경우에는 정상화가 아니라 scrape 장애로 인한 관측 불가일 수 있으므로 `CPU 정상`으로
    보고하지 않는다.
    상세 판정·PagerDuty 분리·후속 job 작성법은

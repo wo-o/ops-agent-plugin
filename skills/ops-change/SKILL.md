@@ -642,7 +642,11 @@ surface는 이 runbook과 도구 인자 안에서만 쓰는 내부 키다. 사�
      tfvars PR을 연다. 실제 타입이 이미 새 값이라 plan은 no-op이다 — 이 PR은 변경 실행이
      아니라 **상태 수렴용**이며, 생략하면 다음 apply가 플릿 전체를 구 타입으로 동시에
      되돌린다(순단 재발). 보고에도 ansible run(실제 변경)과 tfvars PR(상태 동기화)을
-     구분해 남긴다.
+     구분해 남긴다. **수렴 PR이 머지되기 전에는 같은 환경의 다른 tfvars 변경을 진행하지
+     않는다** — 어떤 surface든 tf-apply는 그 환경 stack 전체를 적용하므로 구 타입 revert가
+     함께 실행되어 플릿이 동시에 정지한다. prod는 사람 머지라 이 창이 길어질 수 있으니
+     머지 요청 멘션에 "머지 전 같은 env의 다른 변경 금지·미머지 시 다음 apply가 타입을
+     되돌림"을 명시한다.
   3. 검증은 read 도구로: 요청 환경의 running app 인스턴스 각각의 `type`이 요청값과
      일치하고 동일 환경 TG target이 모두 `healthy`인지 인스턴스별로 열거한다.
   타입 값이 카탈로그 enum(비용 상한 allowlist) 밖이면 도구가 거부한다 — 다른 playbook이나
