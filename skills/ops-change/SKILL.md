@@ -419,6 +419,9 @@ surface는 이 runbook과 도구 인자 안에서만 쓰는 내부 키다. 사�
   listener·추가 리소스·replica 수·새 네트워크 구조를 명시한 경우에만 surface 밖 기능으로 분기한다.
   value dict로 부분 갱신 — 세팅은 `{"service_enabled": true}`
   (+필요 시 `ec2_instance_type`/`db_instance_class`), 삭제는 `{"service_enabled": false}`.
+  단, **이미 running인 플릿의 `ec2_instance_type` 변경은 이 surface PR로 바로 처리하지
+  않는다** — 아래 "인스턴스 타입 변경" 절차(ansible 먼저)를 따른다. 최초 세팅에만 타입을
+  PR에 바로 넣는다.
   앱 기동·/data 마운트는 EC2 user_data가 부팅에서 자체 처리하므로 **rolling-restart
   등 플릿 조치 ansible을 세팅 절차로 돌리지 않는다**(멀쩡한 유일한 타겟을 TG에서
   드레인해 503을 만든다). 반영 확인(⑤)은 read 도구(`ops_get_service_health` 등)로만
@@ -625,6 +628,27 @@ surface는 이 runbook과 도구 인자 안에서만 쓰는 내부 키다. 사�
   인스턴스·healthy target 또는 공유 리소스가 실제 관측되면 최종 보고 마지막에
   `prod 서비스와 공유 monitoring 리소스는 유지`처럼 영향 범위가 요청 환경에 한정됐음을
   짧게 명시한다. 단, read 응답에 나타나지 않은 공유 리소스의 존속을 추정하지 않는다.
+- 인스턴스 타입 변경 (라이브 플릿, 무중단 롤링): 서비스가 이미 running인 환경의
+  "인스턴스 타입 올려줘/내려줘"는 `<env>-service` tfvars PR로 바로 처리하지 않는다 —
+  Terraform은 플릿 전체를 병렬 in-place stop/start해 동시에 정지시킨다(전체 순단).
+  절차는 ansible 먼저, tfvars는 뒤에:
+  1. `ops_run_ansible_playbook(playbook="instance-resize", environment=<env>,
+     params={"instance_type": <타입>})`을 dispatch하고 `conclusion=success`까지 폴링한다.
+     playbook은 `serial: 1`로 한 대씩 TG 드레인 → stop → 타입 변경 → start → TG healthy
+     복귀를 수행하고, 한 대라도 healthy로 복귀하지 못하면 그 자리에서 중단한다(나머지는
+     원래 타입으로 계속 서빙). 실패 시 이미 바뀐 인스턴스와 남은 인스턴스를 분리해
+     보고하고 완료를 주장하지 않는다.
+  2. run 성공 후 같은 값으로 `<env>-service` surface에 `{"ec2_instance_type": <타입>}`
+     tfvars PR을 연다. 실제 타입이 이미 새 값이라 plan은 no-op이다 — 이 PR은 변경 실행이
+     아니라 **상태 수렴용**이며, 생략하면 다음 apply가 플릿 전체를 구 타입으로 동시에
+     되돌린다(순단 재발). 보고에도 ansible run(실제 변경)과 tfvars PR(상태 동기화)을
+     구분해 남긴다.
+  3. 검증은 read 도구로: 요청 환경의 running app 인스턴스 각각의 `type`이 요청값과
+     일치하고 동일 환경 TG target이 모두 `healthy`인지 인스턴스별로 열거한다.
+  타입 값이 카탈로그 enum(비용 상한 allowlist) 밖이면 도구가 거부한다 — 다른 playbook이나
+  raw 조작으로 우회하지 말고 상한을 안내한다. 무중단은 플릿이 2대 이상일 때만 성립한다 —
+  1대뿐이면 그 대가 정지하는 동안 순단이므로, 실행 전에 running 수를 확인하고 1대면
+  순단 발생을 먼저 알린 뒤 동의를 받는다.
 - 기존 surface로 안 되는 새 인프라(없는 기능 추가): 환경으로 갈린다.
   - **dev**: `ops_github_open_code_pr`로 에이전트가 직접 IaC 코드를 저작할 수 있다
     (아래 "dev 코드 PR" 절). 임의로 다른 surface에 우겨넣지 않는다.
