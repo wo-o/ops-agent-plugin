@@ -10,8 +10,8 @@ plugins:
 
 # 2) Slack에는 ops toolset을 노출한다. 여기서 hermes-cli를 상속하지 말 것 —
 #    그러면 terminal/file 등이 노출된다. toolset은 권한 경계로 나뉜다(PLUGIN.md §1):
-#    read 1개(ops-read=조회 전부) + write 2개(ops-github-write=봇 PR,
-#    ops-ansible-write=카탈로그).
+#    read 1개(ops-read=조회 전부) + write 3개(ops-github-write=봇 PR,
+#    ops-ansible-write=카탈로그, ops-monitoring-write=silence·PD incident).
 platform_toolsets:
   slack: [ops-read, ops-github-write, ops-ansible-write, ops-monitoring-write]
 known_plugin_toolsets:

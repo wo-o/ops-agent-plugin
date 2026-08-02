@@ -5,17 +5,19 @@ IaC 실습(ops-agent-iac) 전체에서 에이전트가 **인프라를 조회(rea
 플러그인에서 실습에 필요한 것만 떼어 실습 환경(Name 태그 · 공유 모니터링 스택 ·
 GitHub App)에 재타깃한 축소판이다.
 
-toolset은 **권한 경계(read/write)**로 나뉜다. read 1종 + write 2종:
+toolset은 **권한 경계(read/write)**로 나뉜다. read 1종 + write 3종:
 
-- **ops-read** (15) — 조회 전부(read-only): AWS(서비스 헬스·ALB 타깃·비용·미사용 리소스),
+- **ops-read** (16) — 조회 전부(read-only): AWS(서비스 헬스·ALB 타깃·비용·미사용 리소스),
   관측 스택(Prometheus 메트릭·Loki 로그·Grafana 알람), GitHub(PR 상태·워크플로 run·
   리포 파일 읽기), Cloudflare(DNS 레코드·WAF 룰), PagerDuty(인시던트·온콜). 자격증명이 없는 서비스의
   도구는 check gate가 알아서 숨긴다 — 서비스별로 toolset을 쪼갤 이유가 없다.
-- **ops-github-write** (2) — 첫 번째 쓰기 경로: 봇 이름으로 PR을 연다. apply는
+- **ops-github-write** (3) — 첫 번째 쓰기 경로: 봇 이름으로 PR을 연다. apply는
   안 한다. (a) `ops_github_open_tfvars_pr` — surface tfvars 한 파일 변경(dev·prod).
   (b) `ops_github_open_code_pr` — **dev 한정** IaC 코드 PR(2-1-dev/·modules/·
   ansible/, 2026-07-20 개방; `.github/`·`scripts/`·`2-0-setup/`·`2-2-prod/`는
-  도구가 거부). 자동 머지 vs 사람 승인은 이 도구가 아니라 repo의
+  도구가 거부). (c) `ops_github_open_promotion_pr` — dev에서 검증된 `modules/`·
+  `ansible/`을 main으로 올리는 dev→main 승격 PR(main HEAD 기반 스냅샷 브랜치,
+  머지는 main CODEOWNERS 사람 승인). 자동 머지 vs 사람 승인은 이 도구가 아니라 repo의
   **CODEOWNERS + ruleset**이 정한다 — dev는 surface·코드 경로 모두 무소유라 guard
   통과 시 자동 머지, prod는 전부 소유라 code-owner 리뷰 대기(코드는 dev→main 승격
   PR로만 도달). guard(plan + 비용 백스톱 + ansible syntax) check는 필수. 코드 PR
@@ -28,8 +30,13 @@ toolset은 **권한 경계(read/write)**로 나뉜다. read 1종 + write 2종:
   params 검증·`--limit env_dev|env_prod` fleet 스코프·`dry_run`(--check)으로 잡고, 장애
   주입처럼 서비스를 해치는 playbook은 카탈로그에 없다. change 경로와 같은 GitHub App 자격증명
   (`OPS_GITHUB_*`)이 있어야 노출된다.
+- **ops-monitoring-write** (3) — 세 번째 쓰기 경로: 알람 통지·인시던트 상태 조작
+  (인프라 변경 없음). `ops_grafana_silence`(exact-match mute/unmute, 만료 필수
+  max 24h) · `ops_pagerduty_manage_incident`(기존 incident ack/snooze/resolve) ·
+  `ops_pagerduty_page_oncall`(온콜 실페이지 — 런북 서킷 브레이커 전용). 해당
+  자격증명(Grafana 토큰 / PD API key·routing key)이 있어야 노출된다.
 
-스킬 3개도 함께 등록된다:
+스킬 4개도 함께 등록된다:
 
 - **ops-operating** — read 질문 라우팅 runbook(헬스·알람·메트릭·비용·PR 상태 등).
 - **ops-change** — 사용자 요청 기반으로 surface를 변경할 때의 판단 runbook. read
@@ -43,6 +50,10 @@ toolset은 **권한 경계(read/write)**로 나뉜다. read 1종 + write 2종:
   5xx→WAF rate limit(tfvars), 인증 실패→SSH allowlist 축소(tfvars). 알람이 flapping하면
   자동 대응을 멈추고 온콜을 부르는 서킷 브레이커까지. tfvars PR과 bounded ansible 두
   경로만 쓴다.
+- **ops-incident-rca** — 조치 toolset이 꺼진 explain-only 모드 전용. 알람의 원인을
+  read 도구로 추적해 근거와 함께 보고하는 것까지가 전부이며, 어떤 조치(tfvars PR·
+  ansible·silence·PD write)도 만들지 않는다. 조치 경로가 활성인 모드에서는 이 스킬
+  대신 ops-incident-response를 쓴다.
 
 > 이 문서 하나로 "슬랙에서 자연어 → 에이전트가 인프라를 읽고, 변경을 봇 PR로
 > 연다"까지 처음부터 따라 할 수 있다.
@@ -366,6 +377,7 @@ approvals:
 |---|---|---|---|
 | `ops_github_open_tfvars_pr(surface, op, ...)` | ops-github-write | 단일 tfvars 파일 변경 PR을 **봇 이름**으로 연다 (브랜치 `ops/agent-*`). auto/human은 CODEOWNERS가 결정 | GitHub App |
 | `ops_github_open_code_pr(files, title, reason)` | ops-github-write | **dev 한정** IaC 코드 PR(base=dev, `2-1-dev/`·`modules/`·`ansible/`만 — 그 외 경로는 도구가 거부). surface 밖 기능 추가용 | GitHub App |
+| `ops_github_open_promotion_pr(title, reason)` | ops-github-write | dev에서 검증된 `modules/`·`ansible/`을 main으로 올리는 **dev→main 승격 PR** — main HEAD 기반 스냅샷 브랜치에 dev 최종 상태만 담아 충돌 없이 연다. 머지는 main CODEOWNERS(사람 승인), apply는 머지 후 CI | GitHub App |
 | `ops_run_ansible_playbook(playbook, environment, ...)` | ops-ansible-write | **PR 없이** 카탈로그 playbook을 실행 — 단 직접 SSH가 아니라 IaC repo의 `ansible-ops.yml`을 workflow_dispatch로 트리거(실행은 VPC 안 self-hosted 러너, `--limit env_dev\|env_prod`, ref는 브랜치=환경: dev→dev, prod→main) | GitHub App |
 | `ops_grafana_silence(action, ...)` | ops-monitoring-write | 알람 통지 mute/unmute — exact-match만, 만료 필수(max 24h), comment 감사 | Grafana |
 | `ops_pagerduty_manage_incident(incident_id, action)` | ops-monitoring-write | 기존 incident ack/snooze/resolve — 사람이 요청한 lifecycle만, 자기 페이지 incident 금지 | PagerDuty |
@@ -377,7 +389,8 @@ surface: `dev-service · dev-ec2-ssh · dev-db-access · dev-disk · dev-dns · 
 + 존 전역 `waf` 하나(2-2-prod root 소유, prod 전용). prod surface는 전부 사람 승인(waf만 예외 — incident 차단이라 auto).
 `service_enabled=false`는 스택 전체 destroy로 복구 불가지만, dev-service는 무소유라
 guard 통과 시 auto-merge된다.
-ansible playbook 카탈로그: `rolling-restart · disk-grow · security-patch`
+ansible playbook 카탈로그: `rolling-restart · disk-grow · security-patch ·
+instance-resize · monitoring-agents · rds-temp-user · rds-readonly-user`
 (장애 주입용 playbook은 카탈로그에 없음).
 
 ---

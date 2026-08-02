@@ -17,8 +17,8 @@ tfvars PR(ops-github-write) · bounded ansible 카탈로그 실행(ops-ansible-w
 
 클라우드를 직접 변경하는 경로는 없다 — 모든 변경(tfvars PR,
 emergency action)은 IaC 리포의 CI를 거친다. register(ctx)가 배선하는 것:
-read 도구 16개(toolset ops-read 하나) + write 도구 6개(ops-github-write의
-tfvars PR·dev 코드 PR, ops-ansible-write의 카탈로그 플레이북,
+read 도구 16개(toolset ops-read 하나) + write 도구 7개(ops-github-write의
+tfvars PR·dev 코드 PR·dev→main 승격 PR, ops-ansible-write의 카탈로그 플레이북,
 ops-monitoring-write의 Grafana silence·PD incident·온콜 페이지), post_tool_call
 audit 훅(append-only JSONL), 그리고 한국어 runbook skill 네 개(ops-operating,
 ops-change, ops-incident-response, ops-incident-rca — 조치 toolset이 꺼진 모드에서
