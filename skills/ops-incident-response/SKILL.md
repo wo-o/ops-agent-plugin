@@ -132,7 +132,7 @@ workflow가 오래 `queued`일 때 반복 통지마다 ansible을 dispatch하면
 | 알람(alertname) | 진단으로 가르는가 | 대응 | 경로 |
 |---|---|---|---|
 | instance CPU high | 예 (일시 부하 vs 앱 이상) | 관찰 / 롤링 재시작 | 우선 read로 원인 확인, 앱 이상이면 ansible `rolling-restart` |
-| instance memory high | 예 (현재 사용률로 갈림) | 90% 미만: 관찰·보고 / 90% 이상: 무중단 롤링 재시작 | 알람은 60%에 발화한다. `ops_query_metrics(memory_used_pct)`로 현재 값을 확인해 **90% 미만이면 조치 없이 관찰·보고만**, 90% 이상이면 ansible: `rolling-restart` (해당 env) — 동일 UID 과거 사건 판별·다중 타깃 serial 관찰·완료 검증은 `references/memory-high-rolling-restart.md` |
+| instance memory high | 예 (현재 사용률로 갈림) | 80% 미만으로 내려감: 관찰·보고 / 80% 이상 지속: 무중단 롤링 재시작 | 알람은 80%에 발화한다(iac 2-3 alerting 룰과 동일 임계). `ops_query_metrics(memory_used_pct)`로 현재 값을 확인해 **이미 80% 미만으로 내려갔으면(일시 스파이크) 조치 없이 관찰·보고만**, 80% 이상이 유지되면 ansible: `rolling-restart` (해당 env) — 동일 UID 과거 사건 판별·다중 타깃 serial 관찰·완료 검증은 `references/memory-high-rolling-restart.md` |
 | instance /data disk high | **예** (로그 폭증 vs 실데이터) | 볼륨 증설 | tfvars `<env>-disk` (set_value) → ansible `disk-grow` |
 | app 5xx / ERROR surge | **예** (배포/코드 vs 특정 IP) | 로그 조사 → 수정 PR / WAF 차단 | Loki 조사 → 앱 코드 수정 PR(앱 리포, 사람 리뷰) **또는** tfvars `waf`(존 전역, prod 전용 surface) |
 | instance down (up==0) | **먼저 no-data(미배포) vs soft-hang** | no-data면 monitoring-agents, soft-hang이면 롤링 재시작 | `ops_query_metrics(cpu_utilization)` 비면 미배포 → ansible `monitoring-agents` / 메트릭 있는데 up만 0이면 `rolling-restart` / 완전 다운은 §4 |
