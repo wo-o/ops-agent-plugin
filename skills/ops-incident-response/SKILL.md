@@ -147,9 +147,10 @@ workflow가 오래 `queued`일 때 반복 통지마다 ansible을 dispatch하면
 
 - **/data disk high** — `ops_query_metrics`(디스크 사용률)·로그 신호로 원인 판별 후
   볼륨을 키운다: `ops_github_open_tfvars_pr(surface="<env>-disk", op="set_value",
-  value=<현재보다 큰 GB, 1..100>)` (grow-only). 머지·apply되면 terraform이 EBS를 라이브
-  확대하고, `ops_run_ansible_playbook(playbook="disk-grow", environment=<env>)`가
-  파일시스템을 확장한다.
+  value=<현재보다 큰 GB, 1..100>)` (grow-only). 머지되면 terraform이 EBS를 라이브
+  확대하고 disk-grow(파일시스템 확장)까지 CI가 **자동으로 dispatch**한다 — 직접
+  `ops_run_ansible_playbook`을 또 부르지 말고, disk-grow run이 `success`인지 확인만
+  한다. run이 아예 안 생겼을 때만 fallback으로 직접 dispatch한다.
 - **app 5xx / ERROR surge** — `ops_query_logs`로 5xx의 출처를 본다:
   - **직전 배포·코드 문제**로 특정 경로(예: `/troublemaker`)가 500을 낸다 → 로그로
     원인 코드·경로를 특정한다. 사용자가 앱 수정 PR까지 명시적으로 요청했으면 앱 리포
