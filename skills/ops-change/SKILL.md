@@ -204,10 +204,13 @@ surface는 이 runbook과 도구 인자 안에서만 쓰는 내부 키다. 사�
   추측해 비용 변경 PR을 열지 말고 조회 불가를 보고한다.
   EBS 크기 변경만으로 `/data` 파일시스템이 자동 확장됐다고 간주하지 않는다. PR 머지 후
   Terraform apply 성공(또는 read 도구로 대상 환경 EBS의 목표 크기 반영)을 확인한 다음,
-  `ops_run_ansible_playbook(playbook="disk-grow", environment=<env>)`를 실행하고
-  `ops_github_get_workflow_run`으로 `conclusion=success`까지 폴링한다. 이 Ansible은 새
-  인프라 변경이 아니라, 확대된 블록 디바이스에 맞춰 파일시스템을 확장하는 bounded runtime
-  조치다.
+  disk surface 머지 시 CI(dev는 auto-merge.yml dispatch, prod push는 auto-disk-grow)가
+  `disk-grow`를 자동으로 dispatch하므로 직접 `ops_run_ansible_playbook`을 또 부르지 말고,
+  `ops_github_get_workflow_run`으로 그 자동 실행이 `conclusion=success`인지 확인만 한다
+  (중복 dispatch 금지 — 자동 실행과 겹친다). 자동 실행이 조회되지 않을 때만 fallback으로
+  `ops_run_ansible_playbook(playbook="disk-grow", environment=<env>)`를 1회 실행한다. 이
+  Ansible은 새 인프라 변경이 아니라, 확대된 블록 디바이스에 맞춰 파일시스템을 확장하는
+  bounded runtime 조치다.
 
   검증 사실은 분리해 보고한다.
   - `ops_aws_get_service`의 `volumes[].size_gb`와 `state=in-use`는 EBS 블록 디바이스 크기

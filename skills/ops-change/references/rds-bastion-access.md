@@ -129,6 +129,10 @@ ssh -i ~/.ssh/ops-agent-iac \
 psql "host=127.0.0.1 port=15432 dbname=appdb user=<db-user> sslmode=require"
 ```
 
+- **`sslmode=require`는 필수다 — `sslmode=disable`을 쓰지 않는다.** RDS는 SSL을 강제하므로
+  `sslmode=disable`로 접속하면 `FATAL: no pg_hba.conf entry for host ... no encryption`으로
+  거부된다(dev 상시 계정·prod 임시 계정 모두 동일). psql 접속 문자열을 즉흥으로 만들지 말고
+  위 템플릿의 `sslmode=require`를 그대로 쓴다.
 - `-N` 터널 터미널에는 셸/프롬프트가 없다 — 거기에 입력한 SQL은 아무 데도 전달되지 않는다. 안내 메시지에 "터널 터미널은 열어 둔 채, SQL은 별도 터미널의 psql에서 실행"을 명시한다.
 - `<db-user>`는 prod면 발급한 임시 계정, dev면 상시 `readonly` 계정이다. 발급·프로비저닝되지 않은 계정을 완성된 자격증명처럼 표현하지 않는다.
 - prod 임시 비밀번호를 전달할 때는 `PGPASSWORD=... psql ...`처럼 비밀번호가 shell history·프로세스 인자에 남는 완성 명령을 만들지 않는다. 위 `psql` 명령은 비밀번호 없이 제공하고, 프롬프트가 나오면 응답으로 전달한 임시 비밀번호를 입력하라고 안내한다.
