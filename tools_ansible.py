@@ -17,8 +17,12 @@ workflow를 workflow_dispatch로 트리거한다. 실제 ansible-playbook은 VPC
     GitHub를 거친다"를 지킨다. dispatch는 PR/머지를 거치지 않아 즉시성은 유지된다.
 
 안전은 이렇게 잡는다:
-  · 카탈로그 봉쇄 — 에이전트는 workflow의 playbook input에 아무 값이나 못 준다.
-    _PLAYBOOKS의 키 하나를 고를 뿐이다. 장애 주입용 playbook은 카탈로그에 없다 — 조치용만.
+  · 등록 봉쇄 — 에이전트는 workflow의 playbook input에 아무 값이나 못 준다. 빌트인
+    조치 카탈로그(_PLAYBOOKS)의 키이거나, dev 매니페스트(ansible/playbooks.yml)에
+    등록된 이름이어야 한다. "파일만 있으면 실행"이 아니라 "등록된 것만 실행"이다.
+    에이전트가 dev 코드 PR로 새 조치 playbook을 추가할 수 있으나(파일+등록 함께),
+    그것은 dev 전용이고 prod는 dev→main 승격 PR(사람 승인)로만 도달한다. 장애 주입용
+    playbook은 등록하지 않는다 — 조치용만.
   · 환경 스코프 — environment(dev|prod)를 workflow에 넘기고, workflow가 --limit
     env_<env>로 그 환경 플릿에만 실행한다. playbook 자체도 serial:1 + 첫 실패 중단.
   · 인자 봉쇄 — params로 넘길 수 있는 변수는 카탈로그가 선언한 키·enum만.
@@ -31,11 +35,17 @@ workflow를 workflow_dispatch로 트리거한다. 실제 ansible-playbook은 VPC
 
 from __future__ import annotations
 
+import base64
 import re
 import secrets
 import string
 import time
 from typing import Any
+
+try:  # yaml은 프레임워크 의존성이라 런타임에 존재한다(settings.py와 동일 패턴)
+    import yaml
+except Exception:  # pragma: no cover
+    yaml = None
 
 from ._compat import fail, ok
 from . import settings
@@ -44,6 +54,13 @@ from .clients import github_app, http_request
 # IaC 리포의 ansible workflow 파일명(.github/workflows/ 기준). workflow_dispatch로
 # environment/playbook/dry_run input을 받아 self-hosted 러너에서 실행한다.
 _WORKFLOW_FILE = "ansible-ops.yml"
+
+# dev 조치용 플레이북 등록부. 에이전트가 코드 PR로 ansible/에 추가한 플레이북은 여기
+# 등록돼야 dispatch가 허용된다("파일만 있으면 실행"이 아니라 "등록된 것만 실행").
+# 빌트인 7종은 _PLAYBOOKS가 관리하므로 여기 없다. 등록 플레이북은 dev 전용.
+_MANIFEST_PATH = "ansible/playbooks.yml"
+# 등록 이름 문자셋 — workflow가 ansible/<name>.yml 로 실행하므로 경로 조작을 막는다.
+_PB_NAME_RE = re.compile(r"[a-z][a-z0-9-]{2,48}")
 
 
 def _env_ref(env: str) -> str:
@@ -54,6 +71,37 @@ def _env_ref(env: str) -> str:
     (승격 머지로만 도달). ref=main 고정이던 시절에는 dev 수정이 dispatch에 보이지
     않는 갭이 있었다."""
     return "dev" if env == "dev" else "main"
+
+
+def _fetch_registered_playbooks(repo: str) -> dict[str, str]:
+    """dev 브랜치 ansible/playbooks.yml 매니페스트의 등록 플레이북(name -> desc).
+
+    에이전트가 dev 코드 PR로 추가한 조치용 플레이북을 dispatch 허용 목록으로 읽는다.
+    dev 전용이므로 항상 dev ref에서 읽는다. 부재·파싱 실패·yaml 미탑재 시 빈 dict —
+    등록 안 된 이름은 unknown으로 거부된다(workflow가 최종 게이트). 이름 문자셋을
+    검증해 경로 조작(../, 절대경로)을 걸러낸다."""
+    if yaml is None:
+        return {}
+    try:
+        r = http_request(
+            "GET",
+            f"{github_app._API}/repos/{repo}/contents/{_MANIFEST_PATH}",
+            headers=github_app._headers(),
+            params={"ref": "dev"},
+        )
+        if r.status_code >= 400:
+            return {}
+        payload = r.json() or {}
+        raw = base64.b64decode(payload["content"]).decode("utf-8", "replace")
+        data = yaml.safe_load(raw) or {}
+    except Exception:
+        return {}
+    out: dict[str, str] = {}
+    for entry in data.get("playbooks") or []:
+        name = (entry or {}).get("name") if isinstance(entry, dict) else None
+        if isinstance(name, str) and _PB_NAME_RE.fullmatch(name):
+            out[name] = str(entry.get("desc") or "")
+    return out
 
 
 # 조치용 playbook 카탈로그. 키 = workflow의 playbook input enum과 정확히 일치해야 한다.
@@ -194,10 +242,25 @@ def run_ansible_playbook(args: dict, **kwargs: Any) -> str:
         key = args.get("playbook")
         spec = _PLAYBOOKS.get(key)
         if not spec:
-            return fail(
-                f"unknown playbook '{key}'",
-                f"one of: {', '.join(sorted(_PLAYBOOKS))}",
-            )
+            # 빌트인이 아니면 dev 매니페스트 등록분에서 찾는다(에이전트가 코드 PR로
+            # 추가한 조치용 플레이북). 등록분은 dev 전용 + params 없음(주입 방지).
+            registered = _fetch_registered_playbooks(_repo())
+            if key in registered:
+                spec = {
+                    "desc": registered[key] or f"dev 등록 플레이북 {key}",
+                    "params": {},
+                    "envs": ("dev",),
+                }
+            else:
+                extra = (
+                    f"; dev 등록: {', '.join(sorted(registered))}" if registered else ""
+                )
+                return fail(
+                    f"unknown playbook '{key}'",
+                    f"builtin: {', '.join(sorted(_PLAYBOOKS))}{extra}. "
+                    "새 플레이북은 dev 코드 PR로 ansible/<name>.yml + ansible/playbooks.yml "
+                    "등록을 함께 추가한 뒤 dispatch",
+                )
 
         env = args.get("environment")
         if env not in _ENVS:

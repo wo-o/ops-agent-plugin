@@ -349,6 +349,54 @@ def test_non_disk_grow_ignores_push_runs(monkeypatch):
     assert any(c["method"] == "POST" for c in calls)  # 정상 dispatch
 
 
+def test_registered_dev_playbook_dispatches(monkeypatch):
+    # 에이전트가 dev 코드 PR로 추가·등록한 조치 playbook은 빌트인이 아니어도
+    # dev 매니페스트에 등록돼 있으면 dispatch된다(dev ref, params 없음).
+    calls = _install_fake(monkeypatch)
+    monkeypatch.setattr(
+        A,
+        "_fetch_registered_playbooks",
+        lambda repo: {"log-sweep-ssh-hardening": "로그 정리 + sshd 하드닝"},
+    )
+    d = _d(
+        A.run_ansible_playbook(
+            {"playbook": "log-sweep-ssh-hardening", "environment": "dev"}
+        )
+    )
+    assert d["success"] is True
+    body = _dispatch_call(calls)["body"]
+    assert body["ref"] == "dev"
+    assert body["inputs"]["playbook"] == "log-sweep-ssh-hardening"
+    assert body["inputs"]["environment"] == "dev"
+
+
+def test_registered_playbook_rejected_on_prod(monkeypatch):
+    # 등록 playbook은 dev 전용 — prod는 dev→main 승격 PR로만 도달하므로 dispatch 거부.
+    calls = _install_fake(monkeypatch)
+    monkeypatch.setattr(
+        A,
+        "_fetch_registered_playbooks",
+        lambda repo: {"log-sweep-ssh-hardening": "d"},
+    )
+    d = _d(
+        A.run_ansible_playbook(
+            {"playbook": "log-sweep-ssh-hardening", "environment": "prod"}
+        )
+    )
+    assert d["success"] is False and "restricted to" in d["error"]
+    assert not any(c["method"] == "POST" for c in calls)
+
+
+def test_unregistered_non_builtin_is_unknown(monkeypatch):
+    # 빌트인도 아니고 매니페스트에도 없는 이름은 여전히 unknown으로 거부된다.
+    _install_fake(monkeypatch)
+    monkeypatch.setattr(A, "_fetch_registered_playbooks", lambda repo: {})
+    d = _d(
+        A.run_ansible_playbook({"playbook": "wipe-everything", "environment": "dev"})
+    )
+    assert d["success"] is False and "unknown playbook" in d["error"]
+
+
 def test_rds_temp_user_never_dedups(monkeypatch):
     # 자격증명이 호출마다 달라 rds-temp-user는 in-flight가 있어도 새로 dispatch한다.
     calls = _install_fake(monkeypatch)
