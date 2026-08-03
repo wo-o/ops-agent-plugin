@@ -131,7 +131,7 @@ p = pathlib.Path.home() / ".hermes" / "config.yaml"
 d = yaml.safe_load(p.read_text()) or {}
 m = d.setdefault("model", {})
 m["provider"] = "openai-codex"
-m["default"]  = "openai-codex/gpt-5.5"
+m["default"]  = "gpt-5.6-terra"  # provider 는 위에서 별도 지정(프리픽스 불요). sol/terra 는 롤링될 수 있으니 세팅 시 현재 카탈로그의 유효 모델로 확인·갱신
 m.pop("base_url", None)          # openrouter 등 오버라이드 제거 (필수)
 p.write_text(yaml.safe_dump(d, sort_keys=False, allow_unicode=True))
 print("model =", d["model"])
