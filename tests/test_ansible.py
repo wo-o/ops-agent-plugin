@@ -324,6 +324,71 @@ def test_disk_grow_reuses_push_auto_disk_grow(monkeypatch):
     assert not any(c["method"] == "POST" for c in calls)  # dispatch 안 함
 
 
+def test_disk_grow_reuses_completed_auto_run_same_head(monkeypatch):
+    # F3 (2026-08-03 C2): dev auto-merge가 dispatch한 "disk-grow @ dev" 자동 run이
+    # 에이전트의 dispatch 시도(~2분 뒤)보다 먼저 success로 끝나면 queued/in_progress
+    # 창을 벗어나, 에이전트가 이미 커진 볼륨에 growpart no-op을 중복 dispatch했다.
+    # 현재 머지 head에 대해 이미 success인 자동 run은 head_sha로 상관해 재사용한다.
+    calls = _install_fake(monkeypatch)
+    monkeypatch.setattr(A, "_branch_head_sha", lambda repo, ref: "mergehead")
+
+    def fake_list_dispatch(repo, ref):
+        return [
+            {
+                "id": 700,
+                "display_title": "ansible-ops: disk-grow @ dev",
+                "status": "completed",
+                "conclusion": "success",
+                "html_url": "https://github.com/o/r/actions/runs/700",
+                "head_sha": "mergehead",
+            }
+        ]
+
+    monkeypatch.setattr(A, "_list_dispatch_runs", fake_list_dispatch)
+    monkeypatch.setattr(A, "_list_runs", lambda repo, ref, event: [])
+    d = _d(A.run_ansible_playbook({"playbook": "disk-grow", "environment": "dev"}))
+    assert d["success"] is True and d["reused_run"] is True
+    assert d["run_url"].endswith("/runs/700")
+    assert not any(c["method"] == "POST" for c in calls)  # 중복 dispatch 안 함
+
+
+def test_disk_grow_dispatches_when_completed_run_is_stale_head(monkeypatch):
+    # 다른 머지(head_sha 불일치)의 옛 성공 run은 재사용하지 않는다 —
+    # 이번 요청은 실제로 dispatch돼야 한다(오래된 run 재사용으로 조용히 no-op 방지).
+    calls = _install_fake(monkeypatch)
+    monkeypatch.setattr(A, "_branch_head_sha", lambda repo, ref: "newhead")
+
+    def fake_list_dispatch(repo, ref):
+        posted = any(c["method"] == "POST" for c in calls)
+        runs = [
+            {
+                "id": 600,
+                "display_title": "ansible-ops: disk-grow @ dev",
+                "status": "completed",
+                "conclusion": "success",
+                "html_url": "https://github.com/o/r/actions/runs/600",
+                "head_sha": "oldhead",
+            }
+        ]
+        if posted:
+            runs = [
+                {
+                    "id": 601,
+                    "display_title": "ansible-ops: disk-grow @ dev",
+                    "status": "queued",
+                    "html_url": "https://github.com/o/r/actions/runs/601",
+                    "head_sha": "newhead",
+                }
+            ] + runs
+        return runs
+
+    monkeypatch.setattr(A, "_list_dispatch_runs", fake_list_dispatch)
+    monkeypatch.setattr(A, "_list_runs", lambda repo, ref, event: [])
+    d = _d(A.run_ansible_playbook({"playbook": "disk-grow", "environment": "dev"}))
+    assert d["success"] is True and d.get("reused_run") is not True
+    assert any(c["method"] == "POST" for c in calls)  # 정상 dispatch
+
+
 def test_non_disk_grow_ignores_push_runs(monkeypatch):
     # push 트리거 재사용은 disk-grow 전용이다 — 다른 playbook은 push run을 보지 않는다.
     calls = _install_fake(monkeypatch)

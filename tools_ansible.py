@@ -220,6 +220,19 @@ def _find_new_run(repo: str, after_id: int, ref: str) -> dict | None:
     return None
 
 
+def _branch_head_sha(repo: str, ref: str) -> str | None:
+    """현재 브랜치 tip commit sha(조회 실패 시 None). disk-grow 중복 억제에서
+    CI가 이 머지에 대해 이미 돌린 자동 run인지 head_sha로 상관하는 데 쓴다."""
+    r = http_request(
+        "GET",
+        f"{github_app._API}/repos/{repo}/git/refs/heads/{ref}",
+        headers=github_app._headers(),
+    )
+    if r.status_code >= 400:
+        return None
+    return (r.json().get("object") or {}).get("sha")
+
+
 def run_ansible_playbook(args: dict, **kwargs: Any) -> str:
     """카탈로그 remediation playbook 하나를 한 환경(dev|prod) 플릿에 실행한다 —
     IaC 리포의 ansible-ops workflow를 workflow_dispatch로 트리거해서.
@@ -337,6 +350,7 @@ def run_ansible_playbook(args: dict, **kwargs: Any) -> str:
         if key != "rds-temp-user" and not dry_run:
             dedup_titles = {f"ansible-ops: {key} @ {env}"}
             candidates = list(_list_dispatch_runs(repo, ref))
+            head_sha = None
             # disk-grow는 tfvars 머지가 자동으로 growpart를 돌린다: dev는 봇 auto-merge가
             # push를 억제해 auto-merge.yml이 "disk-grow @ <env>"로 dispatch(제목 일치 →
             # 기존 dedup이 잡음), prod는 admin-merge가 진짜 push라 push 트리거 run
@@ -347,10 +361,38 @@ def run_ansible_playbook(args: dict, **kwargs: Any) -> str:
             if key == "disk-grow":
                 dedup_titles.add("ansible-ops: auto-disk-grow @ push")
                 candidates += _list_runs(repo, ref, "push")
+                # 자동 run(~2분)이 에이전트의 dispatch 시도보다 먼저 끝나면
+                # queued/in_progress 창을 벗어나 아래 dedup을 통과, 에이전트가 이미
+                # 커진 볼륨에 growpart no-op을 중복 dispatch했다(F3, 2026-08-03 C2:
+                # 자동 run 22:59:12 완료 → 에이전트 dispatch 22:59:25, 13초 차이).
+                # 현재 머지 head에 대해 이미 success로 끝난 자동 run도 재사용하도록
+                # head_sha로 상관한다.
+                head_sha = _branch_head_sha(repo, ref)
             for prior in candidates:
-                if prior.get("display_title") in dedup_titles and prior.get(
-                    "status"
-                ) in ("queued", "in_progress"):
+                if prior.get("display_title") not in dedup_titles:
+                    continue
+                status = prior.get("status")
+                in_flight = status in ("queued", "in_progress")
+                # disk-grow 한정: 현재 머지 head에 대해 이미 success로 끝난 자동 run은
+                # 재실행이 no-op이므로 재사용한다(위 race). head_sha 미확보면 스킵.
+                already_done = (
+                    key == "disk-grow"
+                    and status == "completed"
+                    and prior.get("conclusion") == "success"
+                    and head_sha is not None
+                    and prior.get("head_sha") == head_sha
+                )
+                if in_flight or already_done:
+                    reused_status = status if in_flight else "completed(success)"
+                    note = (
+                        f"an identical {key} run for {env} is already {reused_status} "
+                        f"for this merge — reusing it instead of dispatching a duplicate. "
+                    )
+                    note += (
+                        "Read its result and verify with a read tool."
+                        if already_done
+                        else "Poll this run to completion, then verify with a read tool."
+                    )
                     return ok(
                         dispatched=False,
                         reused_run=True,
@@ -358,11 +400,7 @@ def run_ansible_playbook(args: dict, **kwargs: Any) -> str:
                         run_id=prior.get("id"),
                         head_sha=prior.get("head_sha"),
                         ref=ref,
-                        note=(
-                            f"an identical {key} run for {env} is already "
-                            f"{prior.get('status')} — reusing it instead of dispatching a "
-                            "duplicate. Poll this run to completion, then verify with a read tool."
-                        ),
+                        note=note,
                     )
 
         before_id = _latest_run_id(repo, ref)
