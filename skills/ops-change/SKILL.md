@@ -143,7 +143,8 @@ surface는 이 runbook과 도구 인자 안에서만 쓰는 내부 키다. 사�
   **dev의 읽기 전용 접근은 요청자 CIDR만 확인한다.** dev에는 서비스 세팅 후
   `rds-readonly-user` ansible로 만든 상시 `readonly` 계정이 있으므로 기존 계정 여부·새
   계정 생성·사용자명·만료 시각을 추가로 되묻지 않고 `<env>-db-access` 네트워크 grant를
-  연다. 최종 `psql` 명령은 `user=readonly`로 완성하고, 비밀번호는 dev 브랜치
+  연다. 최종 `psql` 명령은 `user=readonly`·`sslmode=require`로 완성하고(RDS는 SSL 강제 —
+  `sslmode=disable`은 거부됨), 비밀번호는 dev 브랜치
   `ansible/rds-readonly-user.yml`의 `readonly_password` 데모 값이다 — 실습용 데모
   자격증명이므로 사용자가 물으면 `ops_github_read_file`로 확인해 실값을 그대로
   알려준다(dev readonly 데모 값 한정 예외 — master·private key 게시 금지는 유지). 네트워크 grant apply 성공 후에는
@@ -170,7 +171,11 @@ surface는 이 runbook과 도구 인자 안에서만 쓰는 내부 키다. 사�
   UTC를 다시 읽어 `valid_until`이 이미 지났거나 남은 시간이 비정상적으로 짧지 않은지
   확인한다. 사용자가 요청한 전체 만료 시간을 임의로 연장하지는 말고 필요하면 새 만료
   시각에 대한 확인을 받는다. 발급 응답에 `temp_password`가 있으면 사용자명과 함께 요청
-  응답으로 전달한다(시간제한 임시 계정의 정본 전달 경로). 응답에 비밀번호가 없고 workflow
+  응답으로 전달한다(시간제한 임시 계정의 정본 전달 경로). 전달하는 `psql` 접속 명령은
+  반드시 `psql "host=127.0.0.1 port=15432 dbname=appdb user=<temp_user> sslmode=require"`
+  형식으로 쓴다 — `sslmode`를 생략하거나 `sslmode=disable`로 만들지 않는다. RDS는 SSL을
+  강제하므로 `sslmode=disable`은 `FATAL: no pg_hba.conf entry ... no encryption`으로 거부돼,
+  발급 계정이 정상이어도 요청자가 접속하지 못한다. 응답에 비밀번호가 없고 workflow
   로그에서 마스킹됐다면 role 생성 성공과 자격증명 전달 미확인을 분리해 `부분 완료`로
   보고하며, 값을 추측하거나 마스킹을 우회하지 않는다. 비밀번호 확보만을 위해 같은
   playbook을 반복 실행하지 않는다. 상세 절차는 `references/rds-bastion-access.md`의
