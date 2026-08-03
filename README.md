@@ -376,8 +376,17 @@ Hermes self-improvement가 런타임 복사본을 스스로 수정할 수 있다
 
 ```bash
 ~/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main cron list   # 현재 등록분 확인
-# 없으면 cron-jobs.yaml의 각 job을 cron create로 등록 (플래그는 `cron create --help`)
+# 현재 전역 모델·provider 확인 — cron pin 값으로 쓴다(미pin 시 드리프트에 skip됨)
+python3 -c "import yaml,pathlib;m=yaml.safe_load((pathlib.Path.home()/'.hermes/config.yaml').read_text())['model'];print(m['provider'],m['default'])"
+# 없으면 cron-jobs.yaml의 각 job을 cron create로 등록하되, 위 provider·model을
+# --provider/--model로 pin (플래그 철자는 `cron create --help`)
 ```
+
+**모델 pin은 필수다.** provider·model을 pin하지 않으면 전역 추론 모델이 드리프트할
+때(관측: gpt-5.6-sol→terra) 해당 job이 "unintended spend 방지" 명목으로 조용히
+skip돼 정기 리포트가 안 온다 — 3종 모두 현재 전역 모델(위 명령 출력)로 pin한다.
+특정 버전을 박지 말고 config.yaml의 `model` 블록과 일치시켜, 호스트 모델을 바꿀 때
+3종을 remove→create로 재-pin한다.
 
 스케줄 타임존은 매니페스트가 UTC 기준(호스트 TZ=UTC, `date`로 확인). in-agent
 `cronjob` 도구는 인시던트 후속 one-shot용이라 이 3종과 별개다. 라이브 Hermes가

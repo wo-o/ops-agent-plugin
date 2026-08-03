@@ -15,6 +15,14 @@
 # deliver 대상("이 채널")에 맡긴다 — `tool` 필드는 그 job 이 실제로 태우는 read 도구를
 # 문서화한 것(__init__.py 등록명).
 #
+# 모델 pin (필수): cron create 시 provider·model 을 현재 전역 추론 모델로 pin 한다.
+# 미지정(unpinned) job 은 전역 모델이 드리프트하면 "unintended spend 방지" 명목으로
+# 조용히 skip 된다(관측 2026-08-03: 전역이 gpt-5.6-sol→terra 로 드리프트하자 unused·
+# cost 가 매일 09:00 KST 에 Skipped). pin 값은 특정 버전을 박지 말고 config.yaml 의
+# model 블록과 일치시킨다(호스트/학생마다 모델이 다를 수 있으므로):
+#   python3 -c "import yaml,pathlib;m=yaml.safe_load((pathlib.Path.home()/'.hermes/config.yaml').read_text())['model'];print(m['provider'],m['default'])"
+# 호스트 전역 모델을 바꾸면 3종을 remove→create 로 재-pin 한다. (README '모델' 절 참조)
+#
 # 스케줄: unused·cost 는 cron(expr), cf-5xx 는 interval(생성시각 기준 N 분마다) 이다.
 # 호스트 TZ=UTC 확인됨 — cron expr 은 UTC 그대로(00:00 UTC = 09:00 KST).
 #
