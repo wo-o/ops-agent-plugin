@@ -707,3 +707,38 @@ def test_packages_surface_rejects_unsafe_name(monkeypatch):
         )
     )
     assert d["success"] is False and "invalid package" in d["error"]
+
+
+def _ops_change_skill_text():
+    from pathlib import Path
+
+    import ops_plugin
+
+    return (
+        Path(ops_plugin.__file__).parent / "skills" / "ops-change" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+
+
+def test_skill_pins_rds_sslmode_require_invariant():
+    """F1 회귀 가드: RDS psql 접속 명령은 sslmode=require를 강제해야 한다.
+
+    실측(soak cycle 2): 에이전트가 sslmode=disable로 psql 명령을 반환해 RDS가
+    'no pg_hba.conf entry ... no encryption'으로 거부했다. 스킬 편집이 이 인라인
+    지침을 조용히 지우면 같은 회귀가 재발하므로, 스킬 텍스트에 불변식을 고정한다.
+    """
+    text = _ops_change_skill_text()
+    assert "sslmode=require" in text
+    # sslmode=disable은 '거부됨'을 설명하는 경고 맥락에서만 등장해야 한다 —
+    # 접속 명령 예시로 제시되면 안 된다.
+    assert "sslmode=disable" in text and "거부" in text
+
+
+def test_skill_has_access_command_completeness_selfcheck():
+    """접근 명령 완결성 자기점검 원칙이 스킬에 존재해야 한다 (F1 일반화).
+
+    sslmode 하나를 넘어, 반환하는 접속 명령이 복붙 실행 가능한 완결 명령인지
+    (placeholder·미발급 계정·엔드포인트) 점검하라는 상위 원칙을 고정한다.
+    """
+    text = _ops_change_skill_text()
+    assert "접근 명령 완결성" in text
+    assert "placeholder" in text
