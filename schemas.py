@@ -444,15 +444,16 @@ OPS_RUN_ANSIBLE_PLAYBOOK = {
         {
             "playbook": {
                 "type": "string",
-                "enum": [
-                    "rolling-restart",
-                    "disk-grow",
-                    "security-patch",
-                    "monitoring-agents",
-                    "rds-temp-user",
-                    "rds-readonly-user",
-                ],
-                "description": "Which catalog playbook to run.",
+                "description": (
+                    "Playbook name to dispatch (never a path). Builtin catalog: "
+                    "rolling-restart, disk-grow, security-patch, monitoring-agents, "
+                    "rds-temp-user, rds-readonly-user, instance-resize. ALSO valid: any "
+                    "playbook registered in the dev manifest (ansible/playbooks.yml) that "
+                    "was added via a dev code PR — dev-only, dispatchable by name once the "
+                    "registration PR merges. No enum here on purpose: the runtime validates "
+                    "the name against the builtin catalog + the live dev manifest and "
+                    "rejects unknown names (a closed enum would 422 newly-registered names)."
+                ),
             },
             "environment": {
                 "type": "string",
