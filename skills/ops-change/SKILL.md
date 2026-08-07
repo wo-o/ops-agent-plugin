@@ -794,8 +794,11 @@ tf-apply(prod)가 자동 실행된다.
 
 "디스크 정리"·"SSH 하드닝" 같은 새 조치 플레이북을 만들어 달라는 요청은 dev 코드 PR
 하나에 `ansible/<name>.yml`(플레이북)과 `ansible/playbooks.yml`의 `- name: <name>`
-등록을 함께 넣는다 — 파일만 있고 미등록이면 dispatch가 거부된다(등록형 runner). 전체
-골격·검증 경계는 `references/ansible-remediation-authoring.md`를 따른다. 핵심:
+등록을 함께 넣는다 — 파일만 있고 미등록이면 dispatch가 거부된다(등록형 runner).
+실행 allowlist는 환경 정본 브랜치의 매니페스트다: dev 실행=dev 등록분, prod 실행=main
+등록분. prod 실행 요청은 dev→main 승격 PR을 사람이 승인(=main 등록)해야 허용되므로,
+승격 전에는 거부하고 승격 경로를 안내한다. 전체 골격·검증 경계는
+`references/ansible-remediation-authoring.md`를 따른다. 핵심:
 
 - `become: true`·`serial: 1`·대상 host group 명시. manifest가 추가 변수 주입을 막으므로
   런타임 입력 대신 안전한 고정 기본값을 플레이북 `vars`에 둔다(`-e` 파라미터 없음).
