@@ -165,7 +165,7 @@ _TOOLS: list[tuple[str, str, dict, Any, Any]] = [
     # dev 코드 PR 경로(2026-07-20 개방): 읽기(현재 내용 확인)는 read 토올셋,
     # 쓰기는 tfvars PR과 같은 github-write 토올셋. dev 브랜치의 modules/·
     # 2-1-dev/·ansible/ 한정 — 경계는 tools_change의 경로 allowlist +
-    # dev CODEOWNERS(소유 해제) + CI guard(plan·비용 백스톱·ansible syntax).
+    # dev CODEOWNERS(소유 해제) + CI guard(plan·비용 가드레일·ansible syntax).
     (
         "ops_github_read_file",
         "ops-read",

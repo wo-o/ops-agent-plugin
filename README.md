@@ -24,7 +24,7 @@ assume한 세션으로만. 서버 상태 변경은 bounded ansible 카탈로그�
 prod의 IaC 코드는 main에 직접 저작할 수 없다 — 에이전트는 dev→main 승격 PR을
 열 수 있을 뿐(2026-08-01 개방 — main HEAD 기반 스냅샷 브랜치에 dev에서 검증된
 modules/·ansible/ 상태만 실린다), 머지는 사람(main CODEOWNERS)이
-승인해야 반영되고, 비용 상한은 CI guard의 비용 백스톱이 2차로 강제한다.
+승인해야 반영되고, 비용 상한은 CI guard의 비용 가드레일이 2차로 강제한다.
 
 ---
 
@@ -232,7 +232,7 @@ bare name을 시도하고, 둘 다 실패했을 때만 "ops 스킬 미등록" �
   ops_github_open_promotion_pr로 dev→main 승격 PR을 열고, 머지는 사람(main
   CODEOWNERS 승인) 몫임을 안내한다(절차는 ops-change 스킬의 "dev→main 승격
   PR" 절). 비용 상한(t3.micro/small)은 validation을 고쳐도 CI
-  비용 백스톱이 막는다 — 완화 시도 대신 상한을 사용자에게 보고한다.
+  비용 가드레일이 막는다 — 완화 시도 대신 상한을 사용자에게 보고한다.
 - 대상 환경(dev/prod)이 불명확하면 PR 전에 되묻는다. dev의 서비스 삭제는
   auto-merge로 destroy까지 바로 가므로 특히 PR 전에 삭제 의사를 확인받는다.
 

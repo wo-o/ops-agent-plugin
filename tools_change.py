@@ -5,9 +5,9 @@
   - dev 코드 PR(2026-07-20 개방): dev 브랜치의 modules/·2-1-dev/·ansible/ 한정으로
     IaC 코드 자체를 수정/추가한다(없는 기능 추가). dev CODEOWNERS가 이 경로들의
     소유를 해제해 guard 통과 시 auto-merge되고, prod 반영은 dev→main 승격 PR에서
-    사람이 승인한다. 비용 상한은 CI guard의 비용 백스톱(.github/은 사람 소유)이
+    사람이 승인한다. 비용 상한은 CI guard의 비용 가드레일(.github/은 사람 소유)이
     2차로 강제한다.
-CI `guard` job(plan + 비용 백스톱 + ansible syntax)이 권위 있는 두 번째 검사다.
+CI `guard` job(plan + 비용 가드레일 + ansible syntax)이 권위 있는 두 번째 검사다.
 
 도구:
   ops_github_open_tfvars_pr  — map entry를 set/remove하거나 scalar를 set한 뒤 PR을 연다
@@ -788,7 +788,7 @@ def open_tfvars_pr(args: dict, **kwargs: Any) -> str:
 # dev 브랜치 한정으로 에이전트가 IaC 코드(기능 추가)를 직접 수정할 수 있다.
 # 경계는 세 겹: (1) 이 allowlist — dev CODEOWNERS가 소유를 해제한 경로와 정확히
 # 일치해야 한다(.github/·scripts/·2-0-setup/·2-2-prod/는 dev에서도 사람 소유),
-# (2) CI guard(plan + 비용 백스톱 + ansible syntax), (3) prod 반영은 dev→main
+# (2) CI guard(plan + 비용 가드레일 + ansible syntax), (3) prod 반영은 dev→main
 # 승격 PR — main CODEOWNERS가 적용돼 사람 승인 필수.
 _CODE_PR_BASE = "dev"
 _CODE_PR_MAX_FILES = 10
@@ -925,7 +925,7 @@ def open_code_pr(args: dict, **kwargs: Any) -> str:
             f"- 요청: {reason}\n"
             f"- 파일: {', '.join(f'`{p}`' for p in touched)}\n"
             "- Base: `dev` — dev CODEOWNERS가 이 경로들의 소유를 해제해 guard(plan + "
-            "비용 백스톱 + ansible syntax) 통과 시 auto-merge됩니다.\n"
+            "비용 가드레일 + ansible syntax) 통과 시 auto-merge됩니다.\n"
             "- prod 반영: dev→main 승격 PR에서 main CODEOWNERS(사람 승인)가 게이트합니다.\n"
             "- 롤백: 이 PR을 `git revert`한 원복 PR — 단, 인프라는 비대칭일 수 있습니다"
             "(EBS 축소 불가 등). plan을 확인하세요.\n"

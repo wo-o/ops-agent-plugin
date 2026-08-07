@@ -20,7 +20,7 @@ toolset은 **권한 경계(read/write)**로 나뉜다. read 1종 + write 3종:
   머지는 main CODEOWNERS 사람 승인). 자동 머지 vs 사람 승인은 이 도구가 아니라 repo의
   **CODEOWNERS + ruleset**이 정한다 — dev는 surface·코드 경로 모두 무소유라 guard
   통과 시 자동 머지, prod는 전부 소유라 code-owner 리뷰 대기(코드는 dev→main 승격
-  PR로만 도달). guard(plan + 비용 백스톱 + ansible syntax) check는 필수. 코드 PR
+  PR로만 도달). guard(plan + 비용 가드레일 + ansible syntax) check는 필수. 코드 PR
   전 현재 내용 확인용 `ops_github_read_file`은 ops-read에 있다.
 - **ops-ansible-write** (1) — 두 번째 쓰기 경로: **PR 없이** bounded remediation
   playbook을 즉시 실행한다(인시던트 대응의 런타임 조치 — 롤링 재시작·디스크
@@ -344,7 +344,7 @@ approvals:
 - 에이전트의 write는 **PR뿐**이다. 클라우드 apply·직접 SSH는 도구 자체가 없다 —
   "없는 도구는 인젝션으로도 못 부른다." `.tf` 수정은 dev 브랜치 한정 코드 PR로만
   가능하고(경로 allowlist가 `.github/`·prod를 거부), prod 코드는 승격 PR에서
-  사람이 승인한다. 비용 상한은 에이전트가 못 건드리는 CI 비용 백스톱이 지킨다.
+  사람이 승인한다. 비용 상한은 에이전트가 못 건드리는 CI 비용 가드레일이 지킨다.
 
 ---
 

@@ -706,12 +706,12 @@ dev 브랜치의 `2-1-dev/`·`modules/`·`ansible/`는 CODEOWNERS 무소유라 �
    먼저 읽는다. `ops_github_open_code_pr`의 files는 **파일 전체 교체**라, 안 읽고
    쓰면 기존 코드가 유실된다.
 2. **최소 diff** — 한 PR에 한 기능. 주변 코드 스타일·주석 밀도를 따른다.
-   variable validation(비용 상한 등)을 완화하지 않는다 — CI 비용 백스톱
+   variable validation(비용 상한 등)을 완화하지 않는다 — CI 비용 가드레일
    (t3.micro/small · db.t3.micro/small 외 거부)이 guard에서 어차피 막는다.
 3. **PR 열기** — `ops_github_open_code_pr(files, title, reason)`. base는 항상 dev.
    `title`에는 기능 요약만 넣는다(예: `앱 업로드 파일용 private S3 버킷 추가`). 도구가 PR·commit 제목에
    `feat(dev): ` 접두사를 자동으로 붙이므로 호출자가 접두사를 중복해서 넣지 않는다.
-   guard(plan + 비용 백스톱 + ansible syntax) 통과 시 auto-merge → tf-apply(ref=dev).
+   guard(plan + 비용 가드레일 + ansible syntax) 통과 시 auto-merge → tf-apply(ref=dev).
 4. **검증·보고** — tfvars PR과 같은 타임라인. terraform 경로면 apply run까지,
    ansible-only면 "다음 ansible-ops dispatch가 소비"로 ④를 명시한다.
 5. **prod 반영 요청이 이어지면** — main에 코드를 저작하지 않는다. dev 검증 근거
@@ -888,7 +888,7 @@ head_sha 일치 재dispatch)로 끝낸다. 프리뷰용 `dry_run=true` workflow�
 - 재시도도 실패하면 반복 생성 호출을 멈추고 원 오류와 remediation을 보고한다. `4xx` validation·권한 오류는 일시 장애로 취급해 재시도하지 말고 입력 또는 권한 문제를 해결한다.
 
 - **dev**는 surface tfvars에 더해 코드 경로(`2-1-dev/`·`modules/`·`ansible/`,
-  env.auto.tfvars 포함)까지 CODEOWNERS 무소유 → `guard`(plan + 비용 백스톱 +
+  env.auto.tfvars 포함)까지 CODEOWNERS 무소유 → `guard`(plan + 비용 가드레일 +
   ansible syntax) 통과 시 자동 머지·apply. 사람 개입 없이 반영된다. dev의 서비스
   세팅/삭제(`dev-service`)도 auto다 — 삭제는 환경·전체 삭제 의사가 명시되면 바로 진행하고,
   범위나 환경이 모호할 때만 PR 전에 1회 확인한다(§0).
