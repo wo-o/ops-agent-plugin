@@ -18,11 +18,13 @@ workflow를 workflow_dispatch로 트리거한다. 실제 ansible-playbook은 VPC
 
 안전은 이렇게 잡는다:
   · 등록 봉쇄 — 에이전트는 workflow의 playbook input에 아무 값이나 못 준다. 빌트인
-    조치 카탈로그(_PLAYBOOKS)의 키이거나, dev 매니페스트(ansible/playbooks.yml)에
-    등록된 이름이어야 한다. "파일만 있으면 실행"이 아니라 "등록된 것만 실행"이다.
-    에이전트가 dev 코드 PR로 새 조치 playbook을 추가할 수 있으나(파일+등록 함께),
-    그것은 dev 전용이고 prod는 dev→main 승격 PR(사람 승인)로만 도달한다. 장애 주입용
-    playbook은 등록하지 않는다 — 조치용만.
+    조치 카탈로그(_PLAYBOOKS)의 키이거나, 환경 정본 브랜치의 매니페스트
+    (ansible/playbooks.yml — dev 실행=dev 등록분, prod 실행=main 등록분)에 등록된
+    이름이어야 한다. "파일만 있으면 실행"이 아니라 "등록된 것만 실행"이다.
+    에이전트가 dev 코드 PR로 새 조치 playbook을 추가할 수 있고(파일+등록 함께),
+    prod 실행 허용은 dev→main 승격 PR(사람 승인 = main 등록)로만 도달한다
+    (2026-08-07, 구 dev 전용 규칙 대체). 장애 주입용 playbook은 등록하지 않는다 —
+    조치용만.
   · 환경 스코프 — environment(dev|prod)를 workflow에 넘기고, workflow가 --limit
     env_<env>로 그 환경 플릿에만 실행한다. playbook 자체도 serial:1 + 첫 실패 중단.
   · 인자 봉쇄 — params로 넘길 수 있는 변수는 카탈로그가 선언한 키·enum만.
@@ -55,9 +57,10 @@ from .clients import github_app, http_request
 # environment/playbook/dry_run input을 받아 self-hosted 러너에서 실행한다.
 _WORKFLOW_FILE = "ansible-ops.yml"
 
-# dev 조치용 플레이북 등록부. 에이전트가 코드 PR로 ansible/에 추가한 플레이북은 여기
+# 조치용 플레이북 등록부. 에이전트가 코드 PR로 ansible/에 추가한 플레이북은 여기
 # 등록돼야 dispatch가 허용된다("파일만 있으면 실행"이 아니라 "등록된 것만 실행").
-# 빌트인 7종은 _PLAYBOOKS가 관리하므로 여기 없다. 등록 플레이북은 dev 전용.
+# 빌트인 7종은 _PLAYBOOKS가 관리하므로 여기 없다. allowlist는 환경 정본 브랜치의
+# 사본이다(dev 실행=dev 등록분, prod 실행=main 등록분 — 승격 PR 승인 = prod 허용).
 _MANIFEST_PATH = "ansible/playbooks.yml"
 # 등록 이름 문자셋 — workflow가 ansible/<name>.yml 로 실행하므로 경로 조작을 막는다.
 _PB_NAME_RE = re.compile(r"[a-z][a-z0-9-]{2,48}")
@@ -73,13 +76,15 @@ def _env_ref(env: str) -> str:
     return "dev" if env == "dev" else "main"
 
 
-def _fetch_registered_playbooks(repo: str) -> dict[str, str]:
-    """dev 브랜치 ansible/playbooks.yml 매니페스트의 등록 플레이북(name -> desc).
+def _fetch_registered_playbooks(repo: str, ref: str) -> dict[str, str]:
+    """ref 브랜치 ansible/playbooks.yml 매니페스트의 등록 플레이북(name -> desc).
 
-    에이전트가 dev 코드 PR로 추가한 조치용 플레이북을 dispatch 허용 목록으로 읽는다.
-    dev 전용이므로 항상 dev ref에서 읽는다. 부재·파싱 실패·yaml 미탑재 시 빈 dict —
-    등록 안 된 이름은 unknown으로 거부된다(workflow가 최종 게이트). 이름 문자셋을
-    검증해 경로 조작(../, 절대경로)을 걸러낸다."""
+    에이전트가 코드 PR로 추가한 조치용 플레이북을 dispatch 허용 목록으로 읽는다.
+    allowlist는 환경 정본 브랜치의 사본이므로 _env_ref(env)를 ref로 받는다
+    (dev 실행=dev 등록분, prod 실행=main 등록분 — 승격 PR 승인 = prod 허용).
+    부재·파싱 실패·yaml 미탑재 시 빈 dict — 등록 안 된 이름은 unknown으로
+    거부된다(workflow가 최종 게이트). 이름 문자셋을 검증해 경로 조작(../,
+    절대경로)을 걸러낸다."""
     if yaml is None:
         return {}
     try:
@@ -87,7 +92,7 @@ def _fetch_registered_playbooks(repo: str) -> dict[str, str]:
             "GET",
             f"{github_app._API}/repos/{repo}/contents/{_MANIFEST_PATH}",
             headers=github_app._headers(),
-            params={"ref": "dev"},
+            params={"ref": ref},
         )
         if r.status_code >= 400:
             return {}
@@ -253,34 +258,37 @@ def run_ansible_playbook(args: dict, **kwargs: Any) -> str:
                 "installation needs actions:write to dispatch the workflow.",
             )
         key = args.get("playbook")
-        spec = _PLAYBOOKS.get(key)
-        if not spec:
-            # 빌트인이 아니면 dev 매니페스트 등록분에서 찾는다(에이전트가 코드 PR로
-            # 추가한 조치용 플레이북). 등록분은 dev 전용 + params 없음(주입 방지).
-            registered = _fetch_registered_playbooks(_repo())
-            if key in registered:
-                spec = {
-                    "desc": registered[key] or f"dev 등록 플레이북 {key}",
-                    "params": {},
-                    "envs": ("dev",),
-                }
-            else:
-                extra = (
-                    f"; dev 등록: {', '.join(sorted(registered))}" if registered else ""
-                )
-                return fail(
-                    f"unknown playbook '{key}'",
-                    f"builtin: {', '.join(sorted(_PLAYBOOKS))}{extra}. "
-                    "새 플레이북은 dev 코드 PR로 ansible/<name>.yml + ansible/playbooks.yml "
-                    "등록을 함께 추가한 뒤 dispatch",
-                )
-
         env = args.get("environment")
         if env not in _ENVS:
             return fail(
                 f"environment must be one of {list(_ENVS)} (got {env!r})",
                 "scope the action to a single environment",
             )
+        spec = _PLAYBOOKS.get(key)
+        if not spec:
+            # 빌트인이 아니면 환경 정본 브랜치 매니페스트 등록분에서 찾는다(에이전트가
+            # 코드 PR로 추가한 조치용 플레이북 — dev 실행=dev 등록분, prod 실행=main
+            # 등록분, 승격 PR 승인 = prod 허용). 등록분은 params 없음(주입 방지).
+            registered = _fetch_registered_playbooks(_repo(), _env_ref(env))
+            if key in registered:
+                spec = {
+                    "desc": registered[key] or f"등록 플레이북 {key}",
+                    "params": {},
+                    "envs": (env,),
+                }
+            else:
+                extra = (
+                    f"; {_env_ref(env)} 등록: {', '.join(sorted(registered))}"
+                    if registered
+                    else ""
+                )
+                return fail(
+                    f"unknown playbook '{key}' (env={env})",
+                    f"builtin: {', '.join(sorted(_PLAYBOOKS))}{extra}. "
+                    "새 플레이북은 dev 코드 PR로 ansible/<name>.yml + ansible/playbooks.yml "
+                    "등록을 함께 추가한 뒤 dispatch. prod 실행은 dev→main 승격 PR을 "
+                    "사람이 승인(=main 등록)해야 허용된다",
+                )
         # 카탈로그가 환경을 한정한 playbook(예: rds-readonly-user는 dev 전용 —
         # prod 상시 계정 금지 계약).
         allowed_envs = spec.get("envs", _ENVS)

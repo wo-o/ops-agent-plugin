@@ -421,7 +421,7 @@ def test_registered_dev_playbook_dispatches(monkeypatch):
     monkeypatch.setattr(
         A,
         "_fetch_registered_playbooks",
-        lambda repo: {"log-sweep-ssh-hardening": "로그 정리 + sshd 하드닝"},
+        lambda repo, ref: {"log-sweep-ssh-hardening": "로그 정리 + sshd 하드닝"},
     )
     d = _d(
         A.run_ansible_playbook(
@@ -435,27 +435,49 @@ def test_registered_dev_playbook_dispatches(monkeypatch):
     assert body["inputs"]["environment"] == "dev"
 
 
-def test_registered_playbook_rejected_on_prod(monkeypatch):
-    # 등록 playbook은 dev 전용 — prod는 dev→main 승격 PR로만 도달하므로 dispatch 거부.
+def test_registered_playbook_prod_requires_main_registration(monkeypatch):
+    # allowlist는 환경 정본 브랜치 매니페스트 — dev에만 등록된 playbook의 prod
+    # dispatch는 unknown(main 미등록)으로 거부되고 승격 PR 안내가 붙는다.
     calls = _install_fake(monkeypatch)
     monkeypatch.setattr(
         A,
         "_fetch_registered_playbooks",
-        lambda repo: {"log-sweep-ssh-hardening": "d"},
+        lambda repo, ref: {"log-sweep-ssh-hardening": "d"} if ref == "dev" else {},
     )
     d = _d(
         A.run_ansible_playbook(
             {"playbook": "log-sweep-ssh-hardening", "environment": "prod"}
         )
     )
-    assert d["success"] is False and "restricted to" in d["error"]
+    assert d["success"] is False and "unknown playbook" in d["error"]
+    assert "승격 PR" in d["remediation"]
     assert not any(c["method"] == "POST" for c in calls)
+
+
+def test_registered_playbook_promoted_runs_on_prod(monkeypatch):
+    # dev→main 승격 PR이 머지돼 main 매니페스트에 등록되면 prod dispatch가
+    # 허용된다(ref=main — 2026-08-07, 구 dev 전용 규칙 대체).
+    calls = _install_fake(monkeypatch)
+    monkeypatch.setattr(
+        A,
+        "_fetch_registered_playbooks",
+        lambda repo, ref: {"log-sweep-ssh-hardening": "d"} if ref == "main" else {},
+    )
+    d = _d(
+        A.run_ansible_playbook(
+            {"playbook": "log-sweep-ssh-hardening", "environment": "prod"}
+        )
+    )
+    assert d["success"] is True
+    body = _dispatch_call(calls)["body"]
+    assert body["ref"] == "main"
+    assert body["inputs"]["environment"] == "prod"
 
 
 def test_unregistered_non_builtin_is_unknown(monkeypatch):
     # 빌트인도 아니고 매니페스트에도 없는 이름은 여전히 unknown으로 거부된다.
     _install_fake(monkeypatch)
-    monkeypatch.setattr(A, "_fetch_registered_playbooks", lambda repo: {})
+    monkeypatch.setattr(A, "_fetch_registered_playbooks", lambda repo, ref: {})
     d = _d(
         A.run_ansible_playbook({"playbook": "wipe-everything", "environment": "dev"})
     )
