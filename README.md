@@ -20,7 +20,7 @@ AI 에이전트(Hermes)가 인프라를 안전하게 운영하게 만드는 실�
 핵심 규율은 인프라 repo와 동일하다: **에이전트의 write는 PR뿐** — tfvars
 surface PR(dev·prod)과 dev 한정 코드 PR(2-1-dev/·modules/·ansible/,
 2026-07-20 개방). apply는 CI(GitHub OIDC)에서만, read는 read 전용 IAM 롤을
-assume한 세션으로만. 서버 상태 변경은 bounded ansible 카탈로그로만 실행한다.
+assume한 세션으로만. 서버 상태 변경은 `ansible/playbooks.yml` 등록부의 playbook만 실행한다.
 prod의 IaC 코드는 main에 직접 저작할 수 없다 — 에이전트는 dev→main 승격 PR을
 열 수 있을 뿐(2026-08-01 개방 — main HEAD 기반 스냅샷 브랜치에 dev에서 검증된
 modules/·ansible/ 상태만 실린다), 머지는 사람(main CODEOWNERS)이
@@ -36,7 +36,7 @@ modules/·ansible/ 상태만 실린다), 머지는 사람(main CODEOWNERS)이
         ▼
 [Hermes 호스트 EC2]  ── ops 플러그인 ──▶ read : <project>-hermes-readonly 롤로 조회
    (ops-agent-iac                        ├▶ write: GitHub App 토큰으로 tfvars PR
-    의 2-0-setup)                         └▶ ansible: bounded 카탈로그를 SSH로 실행
+    의 2-0-setup)                         └▶ ansible: 등록부 playbook을 SSH로 실행
                                               │
                                               ▼
                                      [ops-agent-iac 의 CI(OIDC)가 plan·apply]
@@ -50,8 +50,8 @@ modules/·ansible/ 상태만 실린다), 머지는 사람(main CODEOWNERS)이
   로그·비용을 조회한다.
 - **write**: ops의 write 도구가 GitHub App(봇) 토큰으로 PR을 연다 — tfvars
   surface PR(dev·prod) + dev 한정 코드 PR. 실제 반영은 인프라 repo의 CI가 한다.
-- **ansible**: 서버 상태 변경(rolling-restart, disk-grow 등)은 bounded ansible
-  카탈로그를 통해서만 실행하며, gha-runner 또는 Mac에서 `--limit env_dev|env_prod`로
+- **ansible**: 서버 상태 변경(rolling-restart, disk-grow 등)은 `ansible/playbooks.yml`
+  등록부의 playbook만 실행하며, gha-runner 또는 Mac에서 `--limit env_dev|env_prod`로
   SSH 접속한다.
 - **monitoring write**: 알람 통지 상태 조작(Grafana silence · PagerDuty incident
   ack/snooze/resolve · 온콜 실페이지)은 별도 toolset(`ops-monitoring-write`)이다 —
@@ -243,7 +243,7 @@ helpful, knowledgeable, and direct. Be targeted and efficient in your investigat
 
 이 리포에서 너는 인프라 운영 에이전트다. 읽기는 ops read 도구로, 변경은 PR
 (ops-github-write: tfvars surface PR + dev 한정 코드 PR + dev→main 승격 PR)로만
-하고, 서버 상태 변경은 bounded ansible 카탈로그로만 실행한다. raw 셸(aws CLI 등)로 조회하지
+하고, 서버 상태 변경은 등록부(`ansible/playbooks.yml`)의 playbook만 실행한다. raw 셸(aws CLI 등)로 조회하지
 말고 ops 도구를 우선한다.
 
 # 다시 한 번: 모든 응답은 한국어로 작성한다.
@@ -411,7 +411,7 @@ cf-5xx cron이 쓰는 `ops_cloudflare_get_analytics`는 `OPS_CLOUDFLARE_READ_TOK
 ### (4) 슬랙에서 실습 진행
 
 슬랙에서 자연어로 요청하면 에이전트가 read 도구로 조회하거나, write 도구로
-tfvars PR을 열거나, bounded ansible 카탈로그를 실행한다. 실습별 요청
+tfvars PR을 열거나, 등록부 ansible playbook을 실행한다. 실습별 요청
 문구(프롬프트) 전체 목록과 예상 동작은 [`PLUGIN.md`](PLUGIN.md)의 슬랙 시연 대본에
 있다. 에이전트가 하는 일은 스킬 4종으로 나뉜다:
 
@@ -447,7 +447,7 @@ prod 전부·`.tf`는 CODEOWNERS에 따라 사람 승인이 필요하다.
 - **read**는 `<project>-hermes-readonly` 롤(ReadOnlyAccess + Cost Explorer read)을
   assume한 세션으로만 이뤄진다 — 경계가 repo 관습이 아니라 IAM에서 성립한다.
 - **write**는 GitHub App 설치 토큰의 PR 경로(tfvars surface PR + dev 한정 코드 PR + dev→main 승격 PR),
-  bounded ansible 카탈로그 실행(workflow_dispatch), 알람 통지 상태 조작
+  등록부 ansible playbook 실행(workflow_dispatch), 알람 통지 상태 조작
   (Grafana silence · PD incident lifecycle · 온콜 페이지)까지다. 클라우드를 직접
   변경하거나 apply하는 도구는 애초에 모델에 노출되지 않는다 — 반영은 전부 IaC
   repo의 CI가 한다. prod의 IaC 코드는 dev→main 승격 PR(에이전트가 열 수 있음 —

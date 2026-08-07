@@ -360,7 +360,7 @@ def test_rds_readonly_user_dispatches_on_dev(monkeypatch):
 
 
 def test_rds_readonly_user_rejects_prod(monkeypatch):
-    # prod 상시 계정 금지 계약 — 카탈로그 envs 한정이 dispatch 전에 막는다.
+    # prod 상시 계정 금지 계약 — 스펙 envs 한정이 dispatch 전에 막는다.
     calls = _install_fake(monkeypatch)
     d = _d(
         A.run_ansible_playbook({"playbook": "rds-readonly-user", "environment": "prod"})
@@ -524,8 +524,8 @@ def test_non_disk_grow_ignores_push_runs(monkeypatch):
 
 
 def test_registered_dev_playbook_dispatches(monkeypatch):
-    # 에이전트가 dev 코드 PR로 추가·등록한 조치 playbook은 빌트인이 아니어도
-    # dev 매니페스트에 등록돼 있으면 dispatch된다(dev ref, params 없음).
+    # 에이전트가 dev 코드 PR로 추가·등록한 조치 playbook도 강사 제공분과
+    # 같은 등록부를 타고 dispatch된다(dev ref, params 없음).
     calls = _install_fake(monkeypatch)
     monkeypatch.setattr(
         A,
@@ -584,7 +584,7 @@ def test_registered_playbook_promoted_runs_on_prod(monkeypatch):
 
 
 def test_unregistered_non_builtin_is_unknown(monkeypatch):
-    # 빌트인도 아니고 매니페스트에도 없는 이름은 여전히 unknown으로 거부된다.
+    # 등록부에 없는 이름은 여전히 unknown으로 거부된다.
     _install_fake(monkeypatch)
     monkeypatch.setattr(A, "_fetch_registered_playbooks", lambda repo, ref: {})
     d = _d(

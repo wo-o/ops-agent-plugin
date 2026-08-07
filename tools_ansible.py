@@ -206,7 +206,7 @@ def _branch_head_sha(repo: str, ref: str) -> str | None:
 
 
 def run_ansible_playbook(args: dict, **kwargs: Any) -> str:
-    """카탈로그 remediation playbook 하나를 한 환경(dev|prod) 플릿에 실행한다 —
+    """등록부 remediation playbook 하나를 한 환경(dev|prod) 플릿에 실행한다 —
     IaC 리포의 ansible-ops workflow를 workflow_dispatch로 트리거해서.
 
     args:

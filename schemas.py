@@ -400,7 +400,7 @@ OPS_OPEN_PROMOTION_PR = {
 # 두 번째 write 도구: PR을 거치지 않고 remediation playbook을 실행한다. 단, 이 호스트에서
 # 직접 SSH로 돌리지 않고 IaC 리포의 ansible-ops workflow를 workflow_dispatch로 트리거한다
 # (실제 ansible은 VPC 안 self-hosted 러너에서 실행). tfvars PR과 달리 사람 리뷰 없이 바로
-# 라이브 호스트를 바꾸므로 카탈로그 봉쇄(고정 playbook 키)와 params 검증, --limit fleet
+# 라이브 호스트를 바꾸므로 등록부 allowlist(환경 정본 브랜치)와 스펙 기반 params 검증, --limit fleet
 # 스코프, --check(dry_run)로 경계를 잡는다. 모니터링 2-3 incident-response: 알람(메모리·행
 # -> 롤링 재시작, 디스크 -> 확장, 패치)에서 tfvars로는 못 되돌리는 런타임 상태 조치에만 쓴다.
 OPS_RUN_ANSIBLE_PLAYBOOK = {

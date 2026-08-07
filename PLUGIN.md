@@ -26,9 +26,10 @@ toolset은 **권한 경계(read/write)**로 나뉜다. read 1종 + write 3종:
   playbook을 즉시 실행한다(인시던트 대응의 런타임 조치 — 롤링 재시작·디스크
   확장·보안 패치). 단 이 호스트에서 직접 SSH로 돌리지 않고 IaC 리포의 `ansible-ops.yml`
   워크플로를 GitHub App으로 **workflow_dispatch**한다(실제 실행은 VPC 안 self-hosted
-  러너). tfvars로 못 되돌리는 서버 상태 전용. 안전은 카탈로그 봉쇄(고정 playbook 키)·
-  params 검증·`--limit env_dev|env_prod` fleet 스코프·`dry_run`(--check)으로 잡고, 장애
-  주입처럼 서비스를 해치는 playbook은 카탈로그에 없다. change 경로와 같은 GitHub App 자격증명
+  러너). tfvars로 못 되돌리는 서버 상태 전용. 안전은 `ansible/playbooks.yml` 등록부
+  allowlist(환경 정본 브랜치 기준)·`ansible/specs/<name>.yml` 스펙 기반 params 검증(specs/는
+  dev에서도 사람 소유)·`--limit env_dev|env_prod` fleet 스코프·`dry_run`(--check)으로 잡고, 장애
+  주입처럼 서비스를 해치는 playbook은 등록하지 않는다. change 경로와 같은 GitHub App 자격증명
   (`OPS_GITHUB_*`)이 있어야 노출된다.
 - **ops-monitoring-write** (3) — 세 번째 쓰기 경로: 알람 통지·인시던트 상태 조작
   (인프라 변경 없음). `ops_grafana_silence`(exact-match mute/unmute, 만료 필수
@@ -378,7 +379,7 @@ approvals:
 | `ops_github_open_tfvars_pr(surface, op, ...)` | ops-github-write | 단일 tfvars 파일 변경 PR을 **봇 이름**으로 연다 (브랜치 `ops/agent-*`). auto/human은 CODEOWNERS가 결정 | GitHub App |
 | `ops_github_open_code_pr(files, title, reason)` | ops-github-write | **dev 한정** IaC 코드 PR(base=dev, `2-1-dev/`·`modules/`·`ansible/`만 — 그 외 경로는 도구가 거부). surface 밖 기능 추가용 | GitHub App |
 | `ops_github_open_promotion_pr(title, reason)` | ops-github-write | dev에서 검증된 `modules/`·`ansible/`을 main으로 올리는 **dev→main 승격 PR** — main HEAD 기반 스냅샷 브랜치에 dev 최종 상태만 담아 충돌 없이 연다. 머지는 main CODEOWNERS(사람 승인), apply는 머지 후 CI | GitHub App |
-| `ops_run_ansible_playbook(playbook, environment, ...)` | ops-ansible-write | **PR 없이** 카탈로그 playbook을 실행 — 단 직접 SSH가 아니라 IaC repo의 `ansible-ops.yml`을 workflow_dispatch로 트리거(실행은 VPC 안 self-hosted 러너, `--limit env_dev\|env_prod`, ref는 브랜치=환경: dev→dev, prod→main) | GitHub App |
+| `ops_run_ansible_playbook(playbook, environment, ...)` | ops-ansible-write | **PR 없이** 등록부 playbook을 실행 — 단 직접 SSH가 아니라 IaC repo의 `ansible-ops.yml`을 workflow_dispatch로 트리거(실행은 VPC 안 self-hosted 러너, `--limit env_dev\|env_prod`, ref는 브랜치=환경: dev→dev, prod→main) | GitHub App |
 | `ops_grafana_silence(action, ...)` | ops-monitoring-write | 알람 통지 mute/unmute — exact-match만, 만료 필수(max 24h), comment 감사 | Grafana |
 | `ops_pagerduty_manage_incident(incident_id, action)` | ops-monitoring-write | 기존 incident ack/snooze/resolve — 사람이 요청한 lifecycle만, 자기 페이지 incident 금지 | PagerDuty |
 | `ops_pagerduty_page_oncall(summary, dedup_key, ...)` | ops-monitoring-write | **온콜 실페이지** (Events v2 trigger) — 알람은 Slack 단일 통지라 이 도구가 유일한 페이지 경로. 런북 서킷 브레이커 전용, dedup_key로 에피소드당 1 incident | PD routing key |
@@ -389,9 +390,10 @@ surface: `dev-service · dev-ec2-ssh · dev-db-access · dev-disk · dev-dns · 
 + 존 전역 `waf` 하나(2-2-prod root 소유, prod 전용). prod surface는 전부 사람 승인(waf만 예외 — incident 차단이라 auto).
 `service_enabled=false`는 스택 전체 destroy로 복구 불가지만, dev-service는 무소유라
 guard 통과 시 auto-merge된다.
-ansible playbook 카탈로그: `rolling-restart · disk-grow · security-patch ·
-instance-resize · monitoring-agents · rds-temp-user · rds-readonly-user`
-(장애 주입용 playbook은 카탈로그에 없음).
+ansible playbook 등록부(`ansible/playbooks.yml`, 강사 제공 7종): `rolling-restart ·
+disk-grow · security-patch · instance-resize · monitoring-agents · rds-temp-user ·
+rds-readonly-user` — 에이전트가 dev 코드 PR로 추가·등록한 playbook도 같은 등록부를
+탄다(장애 주입용 playbook은 등록하지 않음).
 
 ---
 

@@ -1,7 +1,7 @@
 """ops — 인프라 운영용 Hermes 플러그인 (read 조회 + bounded write).
 
 얇은 standalone 플러그인 하나. read toolset은 ops-read 하나로 전부 read-only이고, write는
-tfvars PR(ops-github-write) · bounded ansible 카탈로그 실행(ops-ansible-write) ·
+tfvars PR(ops-github-write) · 등록부 ansible playbook 실행(ops-ansible-write) ·
 알람 통지 상태 조작(ops-monitoring-write: Grafana silence + PD incident lifecycle)
 세 경로다. auto vs human 머지는
 이 도구가 아니라 repo의 CODEOWNERS+ruleset이 정한다.
@@ -18,7 +18,7 @@ tfvars PR(ops-github-write) · bounded ansible 카탈로그 실행(ops-ansible-w
 클라우드를 직접 변경하는 경로는 없다 — 모든 변경(tfvars PR,
 emergency action)은 IaC 리포의 CI를 거친다. register(ctx)가 배선하는 것:
 read 도구 16개(toolset ops-read 하나) + write 도구 7개(ops-github-write의
-tfvars PR·dev 코드 PR·dev→main 승격 PR, ops-ansible-write의 카탈로그 플레이북,
+tfvars PR·dev 코드 PR·dev→main 승격 PR, ops-ansible-write의 등록부 플레이북,
 ops-monitoring-write의 Grafana silence·PD incident·온콜 페이지), post_tool_call
 audit 훅(append-only JSONL), 그리고 한국어 runbook skill 네 개(ops-operating,
 ops-change, ops-incident-response, ops-incident-rca — 조치 toolset이 꺼진 모드에서
@@ -190,8 +190,8 @@ _TOOLS: list[tuple[str, str, dict, Any, Any]] = [
         tools_change.check_change_requirements,
     ),
     # 두 번째 write 경로 = bounded ansible 실행(PR 없이 즉시). tfvars가
-    # apply를 사람 리뷰 후 CI로 미루는 것과 달리 라이브 호스트를 바로 바꾸므로 카탈로그
-    # 봉쇄 + --limit fleet 스코프 + dry_run으로 경계를 잡는다. 모니터링 알람 밴드의
+    # apply를 사람 리뷰 후 CI로 미루는 것과 달리 라이브 호스트를 바로 바꾸므로 등록부
+    # allowlist + 스펙 검증 + --limit fleet 스코프 + dry_run으로 경계를 잡는다. 모니터링 알람 밴드의
     # 런타임 상태 조치(재시작·정리·재기동) 전용. 실행은 IaC 리포의 ansible-ops workflow를
     # workflow_dispatch로 트리거해 VPC 안 self-hosted 러너에서 돈다 — change 경로와 같은
     # GitHub App 자격증명 + repo가 있어야 노출된다(check_ansible_requirements).

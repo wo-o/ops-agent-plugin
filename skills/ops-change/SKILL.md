@@ -384,7 +384,7 @@ surface는 이 runbook과 도구 인자 안에서만 쓰는 내부 키다. 사�
     `ops_run_ansible_playbook(playbook="security-patch", environment=<env>, dry_run=false,
     params={})`를 **한 번만** dispatch해 workflow `completed/success`까지 폴링한다.
     `security-patch`는 멱등이라 dry-run 프리뷰를 따로 dispatch하지 않는다 — real run 한 번으로
-    반영·검증한다. (프리뷰를 앞세우면 러너 부하만 2배가 되고, 스키마·카탈로그 거부는 real run
+    반영·검증한다. (프리뷰를 앞세우면 러너 부하만 2배가 되고, 스키마·스펙 거부는 real run
     dispatch 시점에도 동일하게 잡히므로 사전 dry-run의 이득이 없다. 프리뷰를 돌렸다고 응답에
     적지도 않는다 — run-name에 `(dry-run)` 접미사가 없으면 그 run은 real이다.)
   - **머지 반영 전 run을 성공으로 세지 않는다.** dispatch·run 조회 응답의 `head_sha`가
@@ -680,7 +680,7 @@ surface는 이 runbook과 도구 인자 안에서만 쓰는 내부 키다. 사�
      되돌림"을 명시한다.
   3. 검증은 read 도구로: 요청 환경의 running app 인스턴스 각각의 `type`이 요청값과
      일치하고 동일 환경 TG target이 모두 `healthy`인지 인스턴스별로 열거한다.
-  타입 값이 카탈로그 enum(비용 상한 allowlist) 밖이면 도구가 거부한다 — 다른 playbook이나
+  타입 값이 스펙 choices(비용 상한 allowlist) 밖이면 도구가 거부한다 — 다른 playbook이나
   raw 조작으로 우회하지 말고 상한을 안내한다. 무중단은 플릿이 2대 이상일 때만 성립한다 —
   1대뿐이면 그 대가 정지하는 동안 순단이므로, 실행 전에 running 수를 확인하고 1대면
   순단 발생을 먼저 알린 뒤 동의를 받는다.
@@ -834,9 +834,9 @@ PR이 선행한다. 재생성(destroy/create) 없이 state 주소만 옮긴다. 
   count index·for_each key를 재대조한다 — 재생성 위험을 무시하고 진행하지 않는다.
 - dev apply + read 회귀 점검 성공 뒤에만 `ops_github_open_promotion_pr`로 승격한다.
 
-## bounded Ansible 요청: 카탈로그 범위와 부분 실행 동의
+## bounded Ansible 요청: 스펙 범위와 부분 실행 동의
 
-사용자가 bounded Ansible 조치에 카탈로그 밖일 수 있는 추가 params·옵션(예: `rds-temp-user`의
+사용자가 bounded Ansible 조치에 스펙 밖일 수 있는 추가 params·옵션(예: `rds-temp-user`의
 비표준 grant, 임의 플래그)을 요청하면, 실제 실행 전에 그 `params` 그대로 `dry_run=true`로
 스키마 검증만 한다. 이는 `param ... not allowed`를 미리 잡기 위한 것이지 별도 프리뷰 run이
 아니다 — 검증이 `success=false`(스키마 거부)면 workflow가 안 생기므로 폴링 대상이 없고, 통과하면
@@ -846,13 +846,13 @@ PR이 선행한다. 재생성(destroy/create) 없이 state 주소만 옮긴다. 
 head_sha 일치 재dispatch)로 끝낸다. 프리뷰용 `dry_run=true` workflow를 security-patch에 돌리면
 러너 부하만 2배가 된다.
 
-- 도구가 `param ... not allowed`와 `allowed` 목록을 반환하면 카탈로그 밖 요청이다. raw SSH,
+- 도구가 `param ... not allowed`와 `allowed` 목록을 반환하면 스펙 밖 요청이다. raw SSH,
   ad-hoc Ansible, 다른 playbook으로 우회하지 않는다.
 - 복합 요청 중 일부만 실행 가능한 경우, 실행 가능한 부분을 임의로 먼저 적용하지 않는다.
   미지원 항목과 "아직 live 변경 없음"을 분명히 알리고, 사용자가 지원되는 기본 조치만
   실행해도 된다고 확인한 뒤 별도의 실제 run을 dispatch한다. 단, 최초 요청에 "추가 항목이
   안 되면 기본 조치만 실행"처럼 명시적인 fallback 동의가 이미 포함돼 있으면 재확인을
-  요구하지 않는다. dry-run의 카탈로그 거부와 제외 항목을 알린 뒤 즉시 기본 실제 run으로
+  요구하지 않는다. dry-run의 스펙 거부와 제외 항목을 알린 뒤 즉시 기본 실제 run으로
   진행한다.
 - `param ... not allowed`처럼 dispatch 전 스키마 검증에서 `success=false`로 끝난 dry-run은
   workflow가 생성되지 않았으므로 폴링 대상이 아니다. 반대로 `dispatched=true`와 `run_url`이
