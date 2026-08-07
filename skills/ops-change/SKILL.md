@@ -795,13 +795,17 @@ tf-apply(prod)가 자동 실행된다.
 "디스크 정리"·"SSH 하드닝" 같은 새 조치 플레이북을 만들어 달라는 요청은 dev 코드 PR
 하나에 `ansible/<name>.yml`(플레이북)과 `ansible/playbooks.yml`의 `- name: <name>`
 등록을 함께 넣는다 — 파일만 있고 미등록이면 dispatch가 거부된다(등록형 runner).
-실행 allowlist는 환경 정본 브랜치의 매니페스트다: dev 실행=dev 등록분, prod 실행=main
-등록분. prod 실행 요청은 dev→main 승격 PR을 사람이 승인(=main 등록)해야 허용되므로,
-승격 전에는 거부하고 승격 경로를 안내한다. 전체 골격·검증 경계는
-`references/ansible-remediation-authoring.md`를 따른다. 핵심:
+실행 allowlist는 환경 정본 브랜치의 등록부다(강사 제공 조치도 같은 등록부): dev
+실행=dev 등록분, prod 실행=main 등록분. prod 실행 요청은 dev→main 승격 PR을 사람이
+승인(=main 등록)해야 허용되므로, 승격 전에는 거부하고 승격 경로를 안내한다. 전체
+골격·검증 경계는 `references/ansible-remediation-authoring.md`를 따른다. 핵심:
 
-- `become: true`·`serial: 1`·대상 host group 명시. manifest가 추가 변수 주입을 막으므로
-  런타임 입력 대신 안전한 고정 기본값을 플레이북 `vars`에 둔다(`-e` 파라미터 없음).
+- `become: true`·`serial: 1`·대상 host group 명시. 런타임 입력이 필요 없으면 안전한
+  고정 기본값을 플레이북 `vars`에 둔다.
+- 런타임 파라미터(`-e` 변수)가 필요하면 `ansible/specs/<name>.yml` 스펙(허용 키·타입·
+  choices·pattern 선언)을 같은 PR에 추가해야 하는데, **specs/는 dev 브랜치에서도 사람
+  소유(CODEOWNERS)** 라 그 PR은 auto-merge되지 않고 사람 승인이 필요하다 — 요청자에게
+  승인 대기를 안내한다. 스펙 없는 플레이북은 파라미터를 받을 수 없다(값이 오면 거부).
 - **SSH 설정 변경은 handler에 block을 쓰지 않는다.** drop-in 배포 → `/usr/sbin/sshd -t`
   검증 → `ssh` 재시작을 같은 play의 명시적 독립 task 순서로 둔다. block을 handler로
   `notify`하면 일부 실행 환경이 listener로 해석하지 않아 `requested handler ... was not

@@ -6,6 +6,7 @@ workflow_dispatch로 트리거한다. 게이트(check_ansible_requirements)와 �
 않게 한 뒤, dispatch가 올바른 URL/inputs로 불리고 새 run URL을 돌려주는지 단위 테스트한다.
 """
 
+import base64
 import json
 
 from ops_plugin import tools_ansible as A
@@ -25,14 +26,82 @@ class _Resp:
         return self._payload
 
 
-def _install_fake(monkeypatch, dispatch_status=204, new_run=True):
+# 리포의 등록부·스펙 파일과 같은 형태의 픽스처 — contents API fake가 서빙한다.
+# 실행 allowlist는 환경 정본 브랜치의 등록부 하나(2026-08-07 통합, 구 빌트인
+# 카탈로그 대체), 파라미터는 specs/<name>.yml 스펙(사람 소유)이 선언한다.
+_REGISTRY_YML = """\
+playbooks:
+  - name: disk-grow
+    desc: "볼륨 확대(tfvars) 뒤 파일시스템 확장"
+  - name: security-patch
+    desc: "serial 롤링 보안 패치"
+  - name: monitoring-agents
+    desc: "node_exporter + promtail (재)설치"
+  - name: rds-temp-user
+    desc: "만료 있는 임시 RDS role 생성/삭제"
+  - name: rds-readonly-user
+    desc: "dev 상시 readonly RDS 계정(멱등)"
+  - name: rolling-restart
+    desc: "TG 드레인 -> 재시작 -> healthz -> 복귀"
+  - name: instance-resize
+    desc: "인스턴스 타입 롤링 변경(무중단)"
+"""
+
+_REPO_FILES = {
+    "ansible/playbooks.yml": _REGISTRY_YML,
+    "ansible/specs/instance-resize.yml": """\
+params:
+  - name: instance_type
+    type: choice
+    choices: [t3.micro, t3.small]
+    required: true
+""",
+    "ansible/specs/rds-temp-user.yml": """\
+params:
+  - name: temp_user
+    type: string
+    pattern: "^[a-z][a-z0-9_]{2,30}$"
+    required: true
+  - name: valid_until
+    type: string
+    pattern: "^\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2}Z$"
+  - name: grant_mode
+    type: choice
+    choices: [readonly, readwrite]
+  - name: state
+    type: choice
+    choices: [present, absent]
+  - name: temp_password
+    type: string
+    pattern: "^[A-Za-z0-9]{16,64}$"
+    secret: true
+    generated: true
+derived: [db_host, db_admin_password]
+""",
+    "ansible/specs/rds-readonly-user.yml": """\
+envs: [dev]
+derived: [db_host, db_admin_password]
+""",
+}
+
+
+def _install_fake(monkeypatch, dispatch_status=204, new_run=True, repo_files=None):
     """게이트를 열고 네트워크를 fake로 바꾼다. 호출 기록 리스트를 돌려준다."""
     calls = []
+    files = _REPO_FILES if repo_files is None else repo_files
 
     def fake_http(method, url, headers, body=None, params=None, timeout=30.0):
         calls.append({"method": method, "url": url, "body": body, "params": params})
         if method == "POST" and "/dispatches" in url:
             return _Resp(dispatch_status, None, "")
+        if method == "GET" and "/contents/" in url:
+            # 등록부·스펙 조회 — 리포 파일 픽스처를 실제 contents API 형태로 서빙.
+            path = url.split("/contents/", 1)[1]
+            content = files.get(path)
+            if content is None:
+                return _Resp(404, {}, "")
+            encoded = base64.b64encode(content.encode()).decode()
+            return _Resp(200, {"content": encoded}, "")
         if method == "GET" and "/runs" in url:
             posted = any(c["method"] == "POST" for c in calls)
             runs = [{"id": 100, "html_url": "https://github.com/o/r/actions/runs/100"}]
@@ -182,19 +251,24 @@ def test_rds_temp_user_dispatches_with_bounded_params(monkeypatch):
     )
     assert d["success"] is True
     body = next(c["body"] for c in calls if c["method"] == "POST")
-    assert body["inputs"]["temp_user"] == "jin_readonly"
-    assert body["inputs"]["grant_mode"] == "readonly"
-    # 2026-07-20 slack-rca: 비밀번호는 핸들러가 생성해 dispatch input + 응답으로
-    # 전달한다(러너 생성+마스킹은 요청자 전달 경로가 없는 dead end였다).
-    # 영숫자만 — SQL/셸 보간과 workflow의 공백 구분 -e 문자열에 안전해야 한다.
+    # 파라미터는 params JSON input 하나로 넘어간다 — workflow의 generic 엔진이
+    # 같은 스펙으로 재검증 후 -e @extra-vars.json 으로 실행한다.
+    sent = json.loads(body["inputs"]["params"])
+    assert sent["temp_user"] == "jin_readonly"
+    assert sent["grant_mode"] == "readonly"
+    # 2026-07-20 slack-rca: 비밀번호는 핸들러가 생성해 dispatch params + 응답으로
+    # 전달한다(러너 생성+마스킹은 요청자 전달 경로가 없는 dead end였다). 스펙의
+    # generated: true 파라미터 — 영숫자만이라 SQL 보간·pattern 검증에 안전하다.
     import re
 
-    assert re.fullmatch(r"[A-Za-z0-9]{24}", body["inputs"]["temp_password"])
-    assert d["temp_password"] == body["inputs"]["temp_password"]
+    assert re.fullmatch(r"[A-Za-z0-9]{24}", sent["temp_password"])
+    assert d["temp_password"] == sent["temp_password"]
+    assert d["generated_params"]["temp_password"] == sent["temp_password"]
 
 
-def test_rds_temp_user_absent_has_no_password(monkeypatch):
-    # state=absent(DROP)는 비밀번호가 필요 없다 — 생성도 반환도 하지 않는다.
+def test_rds_temp_user_caller_supplied_password_not_regenerated(monkeypatch):
+    # generated: true는 미지정 시에만 생성한다 — 호출자가 준 값은 그대로 쓰고
+    # 응답의 generated_params에는 나타나지 않는다.
     calls = _install_fake(monkeypatch)
     d = _d(
         A.run_ansible_playbook(
@@ -205,14 +279,49 @@ def test_rds_temp_user_absent_has_no_password(monkeypatch):
                     "temp_user": "jin_readonly",
                     "valid_until": "2026-07-16T15:00:00Z",
                     "state": "absent",
+                    "temp_password": "CallerChosenPw2026abc",
                 },
             }
         )
     )
     assert d["success"] is True
     body = next(c["body"] for c in calls if c["method"] == "POST")
-    assert "temp_password" not in body["inputs"]
-    assert "temp_password" not in d
+    sent = json.loads(body["inputs"]["params"])
+    assert sent["temp_password"] == "CallerChosenPw2026abc"
+    assert "generated_params" not in d and "temp_password" not in d
+
+
+def test_instance_resize_spec_required_and_choices(monkeypatch):
+    # 스펙(specs/instance-resize.yml)의 required·choices가 dispatch 전에 강제된다 —
+    # 비용 한도 choices는 사람 소유 스펙 데이터다(구 _PLAYBOOKS enum 대체).
+    calls = _install_fake(monkeypatch)
+    d = _d(
+        A.run_ansible_playbook({"playbook": "instance-resize", "environment": "dev"})
+    )
+    assert d["success"] is False and "required param" in d["error"]
+    d = _d(
+        A.run_ansible_playbook(
+            {
+                "playbook": "instance-resize",
+                "environment": "dev",
+                "params": {"instance_type": "c5.24xlarge"},
+            }
+        )
+    )
+    assert d["success"] is False and "must be one of" in d["error"]
+    assert not any(c["method"] == "POST" for c in calls)
+    d = _d(
+        A.run_ansible_playbook(
+            {
+                "playbook": "instance-resize",
+                "environment": "dev",
+                "params": {"instance_type": "t3.small"},
+            }
+        )
+    )
+    assert d["success"] is True
+    sent = json.loads(_dispatch_call(calls)["body"]["inputs"]["params"])
+    assert sent == {"instance_type": "t3.small"}
 
 
 def test_rds_temp_user_rejects_sql_unsafe_username(monkeypatch):

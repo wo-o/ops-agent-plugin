@@ -9,9 +9,12 @@
 2. 기존 파일을 변경할 경우 현재 전문을 읽은 뒤, 전체 파일 교체 방식(`ops_github_open_code_pr`)에
    맞춰 최소 diff를 만든다.
 3. 플레이북은 `become: true`와 `serial: 1`을 기본으로 하고, 대상 host group을 명시적으로 제한한다.
-4. 새 플레이북은 파일명과 일치하는 안전한 이름으로 manifest에 등록한다(`ansible/<name>.yml`
-   + `ansible/playbooks.yml`의 `- name: <name>`). manifest가 추가 변수 주입을 막는 구조이므로,
-   런타임 입력값 대신 안전한 고정 기본값을 플레이북 `vars`에 둔다(`-e` 파라미터 없음 — injection 차단).
+4. 새 플레이북은 파일명과 일치하는 안전한 이름으로 등록부에 등록한다(`ansible/<name>.yml`
+   + `ansible/playbooks.yml`의 `- name: <name>`). 런타임 입력이 필요 없으면 안전한 고정
+   기본값을 플레이북 `vars`에 둔다. 런타임 파라미터(`-e` 변수)가 필요하면
+   `ansible/specs/<name>.yml` 스펙(허용 키·타입·choices·pattern)을 같은 PR에 추가한다 —
+   specs/는 dev에서도 사람 소유(CODEOWNERS)라 그 PR은 사람 승인이 필요하고, 스펙 없는
+   플레이북에 값을 보내면 검증 엔진이 거부한다(injection 차단).
 5. PR의 lint/문법 검사(guard의 ansible syntax)와 머지를 확인한 뒤에만 실제 run을 dispatch한다.
 6. run이 실패하면 실패 로그에서 정확한 task와 원인을 확인하고, 이미 적용됐을 수 있는 단계와
    미적용 단계를 분리한다. 수정 PR을 머지한 뒤 실제 run을 다시 실행하고 성공까지 확인한다.

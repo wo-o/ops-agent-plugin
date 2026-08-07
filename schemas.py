@@ -412,8 +412,10 @@ OPS_RUN_ANSIBLE_PLAYBOOK = {
         "workflow (ansible runs on an in-VPC self-hosted runner, NOT on this host). Unlike "
         "ops_github_open_tfvars_pr it does NOT open a PR and gets NO human review — the "
         "workflow EXECUTES immediately on live hosts, so use it only for the remediations "
-        "below and prefer a tfvars PR whenever an existing surface fits. Pick a playbook KEY "
-        "from a fixed catalog (never supply a path): 'rolling-restart' (drain from ALB TG, "
+        "below and prefer a tfvars PR whenever an existing surface fits. Pick a playbook NAME "
+        "from the environment's registry, never a path (allowlist = ansible/playbooks.yml on "
+        "the env's canonical branch: dev run -> dev registrations, prod run -> main "
+        "registrations). Standard remediations: 'rolling-restart' (drain from ALB TG, "
         "restart the app service, wait /healthz, re-register; memory-leak/hang), 'disk-grow' "
         "(expand the filesystem after a disk.auto.tfvars volume grow), 'security-patch' "
         "(serial rolling patch + optional reboot + package surface), 'monitoring-agents' "
@@ -445,14 +447,16 @@ OPS_RUN_ANSIBLE_PLAYBOOK = {
             "playbook": {
                 "type": "string",
                 "description": (
-                    "Playbook name to dispatch (never a path). Builtin catalog: "
-                    "rolling-restart, disk-grow, security-patch, monitoring-agents, "
-                    "rds-temp-user, rds-readonly-user, instance-resize. ALSO valid: any "
-                    "playbook registered in the dev manifest (ansible/playbooks.yml) that "
-                    "was added via a dev code PR — dev-only, dispatchable by name once the "
-                    "registration PR merges. No enum here on purpose: the runtime validates "
-                    "the name against the builtin catalog + the live dev manifest and "
-                    "rejects unknown names (a closed enum would 422 newly-registered names)."
+                    "Playbook name to dispatch (never a path). Valid names = the registry "
+                    "(ansible/playbooks.yml) on the target environment's canonical branch: "
+                    "dev run -> dev registrations, prod run -> main registrations (a "
+                    "human-approved dev->main promotion PR is what grants prod execution). "
+                    "Standard entries: rolling-restart, disk-grow, security-patch, "
+                    "monitoring-agents, rds-temp-user, rds-readonly-user, instance-resize. "
+                    "New playbooks are added via a dev code PR (playbook file + registry "
+                    "entry together). No enum here on purpose: the runtime validates the "
+                    "name against the live registry and rejects unknown names (a closed "
+                    "enum would 422 newly-registered names)."
                 ),
             },
             "environment": {
@@ -462,7 +466,14 @@ OPS_RUN_ANSIBLE_PLAYBOOK = {
             },
             "params": {
                 "type": "object",
-                "description": "Optional bounded -e vars (per-playbook enum). Currently none required.",
+                "description": (
+                    "Optional bounded -e vars. Allowed keys/types/ranges are declared by "
+                    "the playbook's spec (ansible/specs/<name>.yml, human-owned data); "
+                    "values are validated here and re-validated by the workflow engine. "
+                    "Playbooks without a spec accept no params. e.g. instance-resize: "
+                    '{"instance_type": "t3.small"}; rds-temp-user: {temp_user, '
+                    "valid_until, grant_mode, state}."
+                ),
             },
             "dry_run": {
                 "type": "boolean",
