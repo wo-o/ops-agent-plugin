@@ -7,7 +7,7 @@ description: >
   (알람에서 시작하는 자율 대응은 ops-incident-response, read-only 질문은 ops-operating.)
   조치는 언제나 PR로만 한다 — 직접 cloud mutation은 절대 없다. 자동 머지 vs 사람 승인은
   repo의 CODEOWNERS가 정한다(dev surface=auto, prod·구조=human).
-version: 0.3.6
+version: 0.4.0
 author: ops-agent-iac
 metadata:
   hermes:
@@ -789,6 +789,43 @@ tf-apply(prod)가 자동 실행된다.
 - 모듈 내부 참조가 필요하면 `modules/service/<기능>.tf` 독립 파일 + environment 게이트
   (모듈은 prod와 공유 — dev 전용 생성), 독립 리소스면 `2-1-dev/` 독립 파일. apply 실패
   시 파라미터 순열 재시도 대신 에러의 API 제약을 읽고 리소스 타입 교체를 먼저 검토한다.
+
+### dev 신규 Ansible 조치 플레이북 (조치 자동화 추가)
+
+"디스크 정리"·"SSH 하드닝" 같은 새 조치 플레이북을 만들어 달라는 요청은 dev 코드 PR
+하나에 `ansible/<name>.yml`(플레이북)과 `ansible/playbooks.yml`의 `- name: <name>`
+등록을 함께 넣는다 — 파일만 있고 미등록이면 dispatch가 거부된다(등록형 runner). 전체
+골격·검증 경계는 `references/ansible-remediation-authoring.md`를 따른다. 핵심:
+
+- `become: true`·`serial: 1`·대상 host group 명시. manifest가 추가 변수 주입을 막으므로
+  런타임 입력 대신 안전한 고정 기본값을 플레이북 `vars`에 둔다(`-e` 파라미터 없음).
+- **SSH 설정 변경은 handler에 block을 쓰지 않는다.** drop-in 배포 → `/usr/sbin/sshd -t`
+  검증 → `ssh` 재시작을 같은 play의 명시적 독립 task 순서로 둔다. block을 handler로
+  `notify`하면 일부 실행 환경이 listener로 해석하지 않아 `requested handler ... was not
+  found`로 run이 실패한다(실측). drop-in은 `/etc/ssh/sshd_config.d/`에 두고 공개키
+  접근을 유지한다.
+- 로그 정리는 활성 로그를 지우지 않는다 — 회전 로그(`*.gz`·`*.old`·숫자 suffix)만,
+  journal은 `journalctl --vacuum-time=<기간>`. 실행 성공과 회수 용량은 분리 보고한다.
+- PR 머지·workflow 성공·서비스 health는 서로 다른 증거다. 첫 run이 실패하면 최초 실패
+  원인과 최종 성공 run URL을 모두 남긴다.
+
+### 승격을 위한 root→module 이관 (moved 블록)
+
+dev에서 `2-1-dev/` 독립 파일로 만든 리소스를 prod로 승격하려면, 승격 경로가
+modules/·ansible/만 담으므로 먼저 그 리소스를 `modules/service/`로 이관하는 dev 코드
+PR이 선행한다. 재생성(destroy/create) 없이 state 주소만 옮긴다. 전체 예시·중복 오류는
+`references/root-to-module-promotion.md`를 따른다. 핵심:
+
+- 상태 보유 리소스 **전부**에 `moved` 블록을 쓴다 — 주 리소스뿐 아니라 access block·
+  ownership control·encryption configuration 등 주소가 바뀌는 모든 리소스. `from`=기존
+  root 주소, `to`=`module.service.<주소>`.
+- 공통 data source를 재선언하지 않는다 — `modules/service/`에 이미
+  `data "aws_caller_identity" "current"`가 있으면 새 파일에서 다시 선언하면
+  `Duplicate data ... configuration`으로 plan이 깨진다. 기존 것을 그대로 참조한다.
+- 기존 root output이 외부 계약이면 삭제하지 말고 module output을 참조하도록 유지한다.
+- dev plan이 state 이동 대신 destroy/create를 제안하면 멈추고 `moved`의 from/to·
+  count index·for_each key를 재대조한다 — 재생성 위험을 무시하고 진행하지 않는다.
+- dev apply + read 회귀 점검 성공 뒤에만 `ops_github_open_promotion_pr`로 승격한다.
 
 ## bounded Ansible 요청: 카탈로그 범위와 부분 실행 동의
 
