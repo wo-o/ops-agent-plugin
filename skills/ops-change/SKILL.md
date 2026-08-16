@@ -4,6 +4,9 @@ description: >
   사용자가 인프라 변경을 요청했을 때(예: "office IP에서 SSH 열어줘", "prod DB 2시간만
   열어줘", "데이터 볼륨 20GB로 키워줘", "이 도메인 ALB에 붙여줘", "이 IP에 rate limit"),
   알맞은 tfvars surface를 골라 ops_github_open_tfvars_pr로 PR을 열 때 사용한다.
+  기존 surface에 없는 신규 기능은 dev에서 ops_github_open_code_pr로 구현하고, prod는 dev
+  검증 후 ops_github_open_promotion_pr로 승격한다. 플러그인의 schema·validation·skill 자체
+  수정 요청도 이 스킬로 라우팅해 ops-agent-plugin 소스 리포에서 처리한다.
   (알람에서 시작하는 자율 대응은 ops-incident-response, read-only 질문은 ops-operating.)
   조치는 언제나 PR로만 한다 — 직접 cloud mutation은 절대 없다. 자동 머지 vs 사람 승인은
   repo의 CODEOWNERS가 정한다(dev surface=auto, prod·구조=human).
