@@ -36,7 +36,10 @@ def test_describe_instances_scopes_on_name_tag():
                         "Placement": {"AvailabilityZone": "apne2-az1"},
                         "PublicIpAddress": "198.51.100.10",
                         "PublicDnsName": "ec2-198-51-100-10.example.compute.amazonaws.com",
-                        "Tags": [{"Key": "Name", "Value": "ops-agent-iac-dev-app-0"}],
+                        "Tags": [
+                            {"Key": "Name", "Value": "ops-agent-iac-dev-app-0"},
+                            {"Key": "AppVersion", "Value": "v6"},
+                        ],
                     }
                 ]
             }
@@ -49,6 +52,9 @@ def test_describe_instances_scopes_on_name_tag():
     assert out[0]["id"] == "i-1"
     assert out[0]["public_ip"] == "198.51.100.10"
     assert out[0]["public_dns"] == "ec2-198-51-100-10.example.compute.amazonaws.com"
+    # Deployed release must be observable from live AWS metadata. Without this
+    # field the status runbook substitutes launch time for the requested version.
+    assert out[0]["app_version"] == "v6"
     kwargs = fake_ec2.get_paginator.return_value.paginate.call_args.kwargs
     # Fleet selection anchors on tag:Role=app — the selector iac documents and
     # ansible/Prometheus already use — so an iac rename of <name>-app-<n> cannot

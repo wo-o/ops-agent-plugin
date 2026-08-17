@@ -124,6 +124,11 @@ def _describe_instances(filters: list[dict]) -> list[dict]:
                     {
                         "id": i["InstanceId"],
                         "name": tags.get("Name"),
+                        # IaC writes the release tag used by cloud-init to the
+                        # live instance. Keep it first-class so status answers
+                        # report the deployed version instead of inferring it
+                        # from a repository default or launch timestamp.
+                        "app_version": tags.get("AppVersion"),
                         "type": i["InstanceType"],
                         "state": i["State"]["Name"],
                         "az": i.get("Placement", {}).get("AvailabilityZone"),
