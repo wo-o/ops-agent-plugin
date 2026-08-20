@@ -6,7 +6,7 @@ description: >
   Cloudflare DNS/WAF)에 Slack/CLI로 답할 때 사용한다. 이 toolset에는 write 도구가 전혀
   없다 — 무엇이든 바꾸겠다고 약속하지 말고, 변경은 ops-change(요청) / ops-incident-response
   (알람) 경로로 안내하라. 이 스킬은 환경 변수를 선언하지 않으며 절대 묻지 않는다.
-version: 0.2.2
+version: 0.2.3
 author: ops-agent-iac
 metadata:
   hermes:
@@ -25,6 +25,11 @@ surface 같은 내부 용어를 쓰지 않는다 — "설정 항목"·"설정 �
 
 서비스는 dev/prod 두 환경으로 뜬다(Role=app 태그, Name `ops-agent-iac-<env>-app-<n>`, Environment
 태그 dev/prod). 조회는 환경을 구분해 답한다.
+
+Slack 요청 앞의 `[sN dev]`/`[sN prod]` 표기는 E2E 셀을 식별하는 **테스트 메타데이터**다.
+서비스 이름이나 AWS 조회 prefix가 아니며 `sN-dev`/`sN-prod`로 변환하지 않는다. 요청 환경이
+dev/prod이면 환경별 AWS 조회 도구의 `prefix`는 정확히 `ops-agent-iac-<env>`를 사용한다.
+예: `[s14 prod]` → `ops-agent-iac-prod`, `[s14 dev]` → `ops-agent-iac-dev`.
 
 ## 질문 → 도구 라우팅
 

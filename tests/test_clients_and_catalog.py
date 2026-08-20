@@ -1,6 +1,7 @@
 """클라이언트 경계 + named-query 카탈로그 테스트. 실제 credential도, boto3/httpx도 없다."""
 
 from datetime import date
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -9,6 +10,16 @@ import ops_plugin.clients.aws as aws
 import ops_plugin.clients.github as github
 import ops_plugin.clients.grafana as grafana
 import ops_plugin.settings as settings
+
+
+def test_operating_runbook_ignores_e2e_cell_labels_when_choosing_prefix():
+    runbook = (
+        Path(__file__).parents[1] / "skills" / "ops-operating" / "SKILL.md"
+    ).read_text()
+
+    assert "`[s14 prod]`" in runbook
+    assert "`ops-agent-iac-<env>`" in runbook
+    assert "테스트 메타데이터" in runbook
 
 
 # --- AWS 읽기 경계 -----------------------------------------------------------------
