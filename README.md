@@ -195,6 +195,10 @@ surface, entry_key, op 같은 내부 구현 용어·도구 인자명은 사용�
   또는 `ops_pagerduty_page_oncall`이 있으면 `ops:ops-incident-response`(진단+조치),
   둘 다 없으면 `ops:ops-incident-rca`(진단·보고 전용 — 어떤 변경도 만들지 않고
   원인·근거·권고만 스레드에 남긴다)
+- 단, 장애 조사 요청에서 사용자가 조치까지 명시했으면(수정 PR·재시작·차단 등)
+  PD 도구가 없어도 `ops:ops-incident-response`로 간다 — 없는 도구(silence·PD)에
+  기대는 단계만 생략하고, tfvars PR·ansible dispatch·앱 코드 수정 PR(호스트 `gh`
+  인증 경로)은 그대로 수행한다. rca는 사용자가 진단·보고만 원할 때 쓴다.
 - read-only 조회·질문 → `ops:ops-operating`
 
 이 리포의 운영 판단에 registry의 generic 스킬(devops/* 등)을 쓰지 않는다 —
