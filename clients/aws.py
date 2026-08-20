@@ -14,6 +14,9 @@ boto3 는 지연 import 되므로, 설치돼 있지 않아도 모듈이 로드�
 
 from __future__ import annotations
 
+from calendar import monthrange
+from datetime import date, timedelta
+
 from .. import settings
 
 
@@ -282,14 +285,16 @@ def alb_target_health(target_group_arn: str) -> list[dict]:
     ]
 
 
+def _today() -> date:
+    return date.today()
+
+
 def cost_summary(period_days: int, group_by: str = "SERVICE") -> dict:
     """직전 기간에 대한 Cost Explorer amortized 비용 (학생 계정 전체 기준 — 랩은 규모가 너무
     작아서 태그별 비용 할당이 기본으로 활성화되지 않는다)."""
-    from datetime import date, timedelta
-
     # Cost Explorer 는 글로벌 엔드포인트가 하나뿐이다 (us-east-1 자격증명 스코프).
     ce = _client("ce", region="us-east-1")
-    end = date.today()
+    end = _today()
     start = end - timedelta(days=period_days)
     resp = ce.get_cost_and_usage(
         TimePeriod={"Start": start.isoformat(), "End": end.isoformat()},
@@ -303,12 +308,43 @@ def cost_summary(period_days: int, group_by: str = "SERVICE") -> dict:
             key = grp["Keys"][0]
             amt = float(grp["Metrics"]["AmortizedCost"]["Amount"])
             totals[key] = totals.get(key, 0.0) + amt
+
+    month_start = end.replace(day=1)
+    days_elapsed = (end - month_start).days
+    month_to_date = 0.0
+    if days_elapsed:
+        month_resp = ce.get_cost_and_usage(
+            TimePeriod={"Start": month_start.isoformat(), "End": end.isoformat()},
+            Granularity="DAILY",
+            Metrics=["AmortizedCost"],
+        )
+        month_to_date = sum(
+            float(
+                day.get("Total", {})
+                .get("AmortizedCost", {})
+                .get("Amount", 0)
+            )
+            for day in month_resp.get("ResultsByTime", [])
+        )
+    days_in_month = monthrange(end.year, end.month)[1]
+    projected_total = (
+        month_to_date / days_elapsed * days_in_month if days_elapsed else 0.0
+    )
     top = dict(sorted(totals.items(), key=lambda kv: kv[1], reverse=True)[:20])
     return {
         "period_days": period_days,
         "group_by": group_by,
         "total": round(sum(totals.values()), 2),
         "top": {k: round(v, 2) for k, v in top.items()},
+        "current_month_estimate": {
+            "month": end.strftime("%Y-%m"),
+            "actual_through": (end - timedelta(days=1)).isoformat(),
+            "month_to_date": round(month_to_date, 2),
+            "projected_total": round(projected_total, 2),
+            "basis": f"{days_elapsed} completed days run-rate",
+            "days_elapsed": days_elapsed,
+            "days_in_month": days_in_month,
+        },
     }
 
 

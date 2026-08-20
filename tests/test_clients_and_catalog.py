@@ -1,5 +1,6 @@
 """클라이언트 경계 + named-query 카탈로그 테스트. 실제 credential도, boto3/httpx도 없다."""
 
+from datetime import date
 from unittest import mock
 
 import pytest
@@ -64,6 +65,55 @@ def test_describe_instances_scopes_on_name_tag():
         {"Name": "tag:Role", "Values": ["app"]},
         {"Name": "tag:Name", "Values": ["ops-agent-iac-*"]},
     ]
+
+
+def test_cost_summary_includes_calendar_month_run_rate():
+    fake_ce = mock.Mock()
+    fake_ce.get_cost_and_usage.side_effect = [
+        {
+            "ResultsByTime": [
+                {
+                    "Groups": [
+                        {
+                            "Keys": ["Amazon Elastic Compute Cloud - Compute"],
+                            "Metrics": {"AmortizedCost": {"Amount": "3.00"}},
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "ResultsByTime": [
+                {"Total": {"AmortizedCost": {"Amount": "4.00"}}}
+            ]
+        },
+    ]
+
+    with (
+        mock.patch.object(aws, "_client", return_value=fake_ce),
+        mock.patch.object(aws, "_today", return_value=date(2026, 8, 20)),
+    ):
+        out = aws.cost_summary(30)
+
+    assert out["current_month_estimate"] == {
+        "month": "2026-08",
+        "actual_through": "2026-08-19",
+        "month_to_date": 4.0,
+        "projected_total": 6.53,
+        "basis": "19 completed days run-rate",
+        "days_elapsed": 19,
+        "days_in_month": 31,
+    }
+    trailing_call, month_call = fake_ce.get_cost_and_usage.call_args_list
+    assert trailing_call.kwargs["TimePeriod"] == {
+        "Start": "2026-07-21",
+        "End": "2026-08-20",
+    }
+    assert month_call.kwargs["TimePeriod"] == {
+        "Start": "2026-08-01",
+        "End": "2026-08-20",
+    }
+    assert "GroupBy" not in month_call.kwargs
 
 
 def test_describe_volumes_scopes_on_data_volume_name_tag():

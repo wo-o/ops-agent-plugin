@@ -94,7 +94,7 @@ OPS_AWS_GET_ALB_TARGET_HEALTH = {
 
 OPS_AWS_GET_COST_SUMMARY = {
     "name": "ops_aws_get_cost_summary",
-    "description": "Read-only Cost Explorer amortized-cost summary for a trailing window (whole student account, grouped by a dimension). Use for 'what did this cost this week?'.",
+    "description": "Read-only Cost Explorer amortized-cost summary for a trailing window plus a current-calendar-month run-rate estimate (whole student account, grouped by a dimension). Use for 'what did this cost this week?' and 'what is this month's expected cost?'.",
     "parameters": _obj(
         {
             "period_days": {"type": "integer", "default": 7, "maximum": 90},
