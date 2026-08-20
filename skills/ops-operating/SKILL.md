@@ -6,7 +6,7 @@ description: >
   Cloudflare DNS/WAF)에 Slack/CLI로 답할 때 사용한다. 이 toolset에는 write 도구가 전혀
   없다 — 무엇이든 바꾸겠다고 약속하지 말고, 변경은 ops-change(요청) / ops-incident-response
   (알람) 경로로 안내하라. 이 스킬은 환경 변수를 선언하지 않으며 절대 묻지 않는다.
-version: 0.2.1
+version: 0.2.2
 author: ops-agent-iac
 metadata:
   hermes:
@@ -43,7 +43,10 @@ surface 같은 내부 용어를 쓰지 않는다 — "설정 항목"·"설정 �
   대상 환경의 running `instances[].app_version`을 사용한다. 값이 없으면 버전을 추측하거나
   인스턴스 시작 시각으로 대체하지 말고 운영 메타데이터 누락이라고 명시한다.
 - "롤링 중 타깃 상태" → `ops_aws_get_alb_target_health()` — dev/prod ALB 타깃 드레인/복귀 관찰.
-- "이번 주 비용" → `ops_aws_get_cost_summary(period_days)` — 계정 전체 기준.
+- "이번 주 비용 / 이번 달 예상 비용" → `ops_aws_get_cost_summary(period_days)` — 계정 전체
+  기준. 이번 달 질문에는 `current_month_estimate.month_to_date`와
+  `current_month_estimate.projected_total`을 함께 제시하고, completed-days run-rate
+  추정이라는 근거를 밝힌다.
 - "안 쓰는 리소스 찾아줘" → `ops_aws_find_unused_candidates()` — **보고서일 뿐이다**.
   idle ≠ unused. 삭제 제안은 사람 확인 + PR 경로로 안내.
 - "PR/워크플로 어떻게 됐어?" → `ops_github_get_pr_status(pr_url)` / `ops_github_get_workflow_run(run_url)`.
