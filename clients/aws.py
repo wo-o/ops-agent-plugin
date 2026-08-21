@@ -319,11 +319,7 @@ def cost_summary(period_days: int, group_by: str = "SERVICE") -> dict:
             Metrics=["AmortizedCost"],
         )
         month_to_date = sum(
-            float(
-                day.get("Total", {})
-                .get("AmortizedCost", {})
-                .get("Amount", 0)
-            )
+            float(day.get("Total", {}).get("AmortizedCost", {}).get("Amount", 0))
             for day in month_resp.get("ResultsByTime", [])
         )
     days_in_month = monthrange(end.year, end.month)[1]
@@ -410,21 +406,45 @@ def find_unused_candidates() -> dict:
 
     # IaC 리포의 롤은 기본 path("/")에 <project>- 이름 프리픽스로 생성되므로
     # PathPrefix 대신 이름 프리픽스로 거른다 (list_roles에는 이름 필터가 없다).
+    #
+    # list_roles 는 RoleLastUsed 를 설계상 채우지 않는다(항상 빈 값) — 그 필드는
+    # get_role/get_account_authorization_details 에서만 온다. 그래서 list_roles
+    # 응답만으로 "미사용"을 판정하면 프리픽스에 걸리는 모든 롤(OIDC 배포 롤,
+    # instance profile, read 롤 등 실사용 롤 포함)이 콘솔의 "Last activity"와
+    # 무관하게 전부 후보로 올라온다. 프리픽스로 후보를 좁힌 뒤 롤마다 get_role 로
+    # 실제 마지막 사용 시각을 재확인한다.
     iam = _client("iam")
     prefix = f"{settings.project_prefix()}-"
-    roles: list = []
+    names: list[str] = []
     for page in iam.get_paginator("list_roles").paginate():
-        roles.extend(
-            r for r in page.get("Roles", []) if r["RoleName"].startswith(prefix)
+        names.extend(
+            r["RoleName"]
+            for r in page.get("Roles", [])
+            if r["RoleName"].startswith(prefix)
         )
-    out["unused_iam_roles"] = [
-        {
-            "name": r["RoleName"],
-            "created": r["CreateDate"].isoformat() if r.get("CreateDate") else None,
-            "last_used": (r.get("RoleLastUsed") or {}).get("LastUsedDate"),
-        }
-        for r in roles
-        if not (r.get("RoleLastUsed") or {}).get("LastUsedDate")
-    ][:100]
+    unused: list[dict] = []
+    for name in names:
+        try:
+            role = iam.get_role(RoleName=name)["Role"]
+        except Exception:
+            # 두 호출 사이에 롤이 사라졌거나 조회에 실패하면, 미사용을 확증할 수
+            # 없으므로 후보에서 제외한다 (조회 실패를 "미사용"으로 오해하지 않도록).
+            continue
+        if (role.get("RoleLastUsed") or {}).get("LastUsedDate"):
+            continue
+        if _has_keep_tag(role.get("Tags")):
+            continue
+        unused.append(
+            {
+                "name": role["RoleName"],
+                "created": role["CreateDate"].isoformat()
+                if role.get("CreateDate")
+                else None,
+                # get_role 로도 LastUsedDate 가 없으면(400일 내 사용 기록 없음)
+                # 비어 있는 게 맞다.
+                "last_used": None,
+            }
+        )
+    out["unused_iam_roles"] = unused[:100]
 
     return out
