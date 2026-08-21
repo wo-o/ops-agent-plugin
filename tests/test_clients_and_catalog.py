@@ -82,11 +82,7 @@ def test_cost_summary_includes_calendar_month_run_rate():
                 }
             ]
         },
-        {
-            "ResultsByTime": [
-                {"Total": {"AmortizedCost": {"Amount": "4.00"}}}
-            ]
-        },
+        {"ResultsByTime": [{"Total": {"AmortizedCost": {"Amount": "4.00"}}}]},
     ]
 
     with (
@@ -141,6 +137,66 @@ def test_describe_volumes_scopes_on_data_volume_name_tag():
     assert fake_ec2.describe_volumes.call_args.kwargs["Filters"] == [
         {"Name": "tag:Name", "Values": ["ops-agent-iac-*data-*"]}
     ]
+
+
+def test_find_unused_candidates_reconfirms_iam_roles_via_get_role():
+    # list_roles 는 RoleLastUsed 를 설계상 채우지 않는다(항상 빈 값). 그래서 예전
+    # 구현은 프리픽스에 걸리는 실사용 롤(OIDC 배포 롤 등)까지 전부 미사용 후보로
+    # 올렸다. 후보는 롤마다 get_role 로 재확인되어야 하고, 콘솔의 "Last activity"에
+    # 대응하는 LastUsedDate 가 있으면 후보에서 빠져야 한다.
+    from datetime import datetime
+
+    fake_ec2 = mock.Mock()
+    fake_ec2.describe_volumes.return_value = {"Volumes": []}
+    fake_ec2.describe_addresses.return_value = {"Addresses": []}
+    fake_ec2.get_paginator.return_value.paginate.return_value = [
+        {"NetworkInterfaces": []}
+    ]
+    fake_ec2.describe_security_groups.return_value = {"SecurityGroups": []}
+    fake_ec2.describe_snapshots.return_value = {"Snapshots": []}
+
+    fake_iam = mock.Mock()
+    # list_roles 는 RoleLastUsed 없이 이름만 준다 (실제 API 동작).
+    fake_iam.get_paginator.return_value.paginate.return_value = [
+        {
+            "Roles": [
+                {"RoleName": "ops-agent-iac-github-oidc"},
+                {"RoleName": "ops-agent-iac-stale"},
+                {"RoleName": "unrelated-role"},  # 프리픽스 밖 → 조회조차 안 함
+            ]
+        }
+    ]
+
+    def _fake_get_role(RoleName):
+        used = {
+            # 실사용 롤: get_role 은 콘솔과 같은 LastUsedDate 를 준다 → 후보 제외.
+            "ops-agent-iac-github-oidc": {
+                "RoleName": RoleName,
+                "CreateDate": datetime(2026, 1, 1),
+                "RoleLastUsed": {"LastUsedDate": datetime(2026, 8, 20)},
+            },
+            # 진짜 미사용: get_role 로도 LastUsedDate 없음 → 후보 유지.
+            "ops-agent-iac-stale": {
+                "RoleName": RoleName,
+                "CreateDate": datetime(2026, 1, 1),
+                "RoleLastUsed": {},
+            },
+        }
+        return {"Role": used[RoleName]}
+
+    fake_iam.get_role.side_effect = _fake_get_role
+
+    def _fake_client(service, region=None):
+        return fake_iam if service == "iam" else fake_ec2
+
+    with mock.patch.object(aws, "_client", side_effect=_fake_client):
+        out = aws.find_unused_candidates()
+
+    names = [r["name"] for r in out["unused_iam_roles"]]
+    assert names == ["ops-agent-iac-stale"]
+    # 프리픽스 밖 롤은 get_role 조차 호출하지 않는다.
+    called = {c.kwargs["RoleName"] for c in fake_iam.get_role.call_args_list}
+    assert called == {"ops-agent-iac-github-oidc", "ops-agent-iac-stale"}
 
 
 def test_describe_db_instances_includes_env_scoped_prefix():
