@@ -20,6 +20,23 @@
    미적용 단계를 분리한다. 수정 PR을 머지한 뒤 실제 run을 다시 실행하고 성공까지 확인한다.
 7. run 성공 뒤 서비스 health나 target health 등 독립적인 read-only 근거로 회귀 여부를 확인한다.
 
+### 파일만 있고 등록이 빠진 요청 복구
+
+fresh Slack 세션에서는 "방금 만든 플레이북"이라는 표현만으로 이전 대화의 파일명을 알 수
+없다. 사용자가 파일은 올렸지만 등록을 누락했다고 말하면 바로 unknown으로 끝내지 말고 다음
+순서로 현재 dev 정본에서 이름을 복구한다.
+
+1. `ansible/` 디렉터리와 `ansible/playbooks.yml`을 읽는다.
+2. 디렉터리의 직접 자식 `*.yml` 플레이북 이름에서 등록부 이름을 빼 미등록 후보를 만든다.
+   `playbooks.yml` 자체와 `inventory/`·`specs/` 하위 파일은 후보가 아니다.
+3. 유일한 미등록 후보면 기존 플레이북 전문은 수정하지 않고 등록부 항목만 추가하는 dev 코드
+   PR을 연다. 후보가 없거나 여러 개면 추측하지 말고 후보 목록과 함께 이름을 확인한다.
+4. 등록 PR의 guard·auto-merge를 확인하고 나서만 같은 이름을 dev에 재dispatch한다. workflow
+   success와 서비스 health까지 확인한다.
+
+미등록 상태에서 먼저 dispatch하거나 raw Ansible로 우회하지 않는다. 이 흐름의 경계 증거는
+등록 전 workflow run 0건, 등록 PR, 등록 후 성공 run의 세 가지다.
+
 ## SSH 설정 변경 — handler block 함정
 
 SSH 보안 설정을 바꿀 때는 공개키 접근을 유지하면서, 설정이 유효한 경우에만 daemon을

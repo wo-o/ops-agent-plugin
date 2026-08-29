@@ -817,6 +817,13 @@ tf-apply(prod)가 자동 실행된다.
   접근을 유지한다.
 - 로그 정리는 활성 로그를 지우지 않는다 — 회전 로그(`*.gz`·`*.old`·숫자 suffix)만,
   journal은 `journalctl --vacuum-time=<기간>`. 실행 성공과 회수 용량은 분리 보고한다.
+- **미등록 후보 탐색:** fresh session에서 사용자가 "플레이북 파일만 올렸고 등록을
+  빼먹었다"고 말해 이름을 생략해도 거부만 하고 끝내지 않는다. 먼저 dev의 ansible/ 디렉터리와
+  `ansible/playbooks.yml`을 읽어 파일명 집합과 등록 이름을 비교한다. 유일한 미등록
+  `ansible/<name>.yml` 후보가 있으면 그 파일은 그대로 두고 등록부만 바꾸는 dev 등록 PR을
+  연다. guard·auto-merge를 확인한 뒤 `<name>`을 dev에 실제 재dispatch하고 성공까지 폴링한다.
+  후보가 없거나 여러 개일 때만 후보 목록과 함께 정확한 이름을 확인한다. 등록 전 dispatch나
+  raw Ansible 우회는 하지 않는다.
 - PR 머지·workflow 성공·서비스 health는 서로 다른 증거다. 첫 run이 실패하면 최초 실패
   원인과 최종 성공 run URL을 모두 남긴다.
 
