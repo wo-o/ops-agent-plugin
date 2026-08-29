@@ -185,6 +185,7 @@ def create_snapshot_branch(
     paths: list[str] | tuple[str, ...],
     branch: str,
     message: str,
+    preserve_paths: list[str] | tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """`base_branch` HEAD에서 새 브랜치를 만들고, `source_branch`의 `paths`
     (리포 루트 디렉터리 단위) 최종 상태만 담은 커밋 하나를 얹는다 — 승격 PR용.
@@ -194,7 +195,9 @@ def create_snapshot_branch(
     불가능하다(충돌 PR은 GitHub가 test merge commit을 못 만들어 tf-plan/guard가
     아예 안 돈다 — 2026-08-01 승격 실패의 원인).
 
-    paths의 diff가 없으면 브랜치를 만들지 않고 {"changed": False}를 반환한다.
+    ``preserve_paths``는 승격 디렉터리 안에서도 환경별 surface처럼 base 값을
+    유지해야 하는 루트 직속 파일이다. paths의 유효 diff가 없으면 브랜치를 만들지
+    않고 {"changed": False}를 반환한다.
     반환: {"changed": True, "branch": branch, "sha": <commit sha>}"""
     h = _headers()
 
@@ -218,18 +221,84 @@ def create_snapshot_branch(
             e["path"]: e["sha"] for e in r.json().get("tree", []) if e["type"] == "tree"
         }
 
+    def _tree_entries(tree_sha: str) -> dict[str, dict[str, Any]]:
+        r = http_request("GET", f"{_API}/repos/{repo}/git/trees/{tree_sha}", headers=h)
+        if r.status_code >= 400:
+            raise GitHubAppError(f"get subtree -> {r.status_code} {r.text[:200]}")
+        return {e["path"]: e for e in r.json().get("tree", [])}
+
     base_head, base_tree = _head_and_tree(base_branch)
     _, src_tree = _head_and_tree(source_branch)
     base_dirs = _root_dir_shas(base_tree)
     src_dirs = _root_dir_shas(src_tree)
 
+    # 디렉터리 스냅샷 안의 환경별 surface는 base(main)의 blob을 다시 덮어써서
+    # 보존한다. 현재 계약은 루트 디렉터리 바로 아래 파일만 허용한다. 중첩 경로를
+    # 조용히 오해하면 보호 대상이 dev 값으로 승격되므로 명시적으로 거부한다.
+    preserve_by_dir: dict[str, list[str]] = {}
+    promoted_roots = set(paths)
+    for full_path in preserve_paths:
+        parts = full_path.split("/")
+        if len(parts) != 2 or parts[0] not in promoted_roots or not parts[1]:
+            raise GitHubAppError(
+                f"preserve path must be a direct file under a promoted root: {full_path}"
+            )
+        preserve_by_dir.setdefault(parts[0], []).append(parts[1])
+
+    effective_src_dirs = dict(src_dirs)
+    for root, filenames in preserve_by_dir.items():
+        if root not in src_dirs:
+            continue
+        src_entries = _tree_entries(src_dirs[root])
+        base_entries = _tree_entries(base_dirs[root]) if root in base_dirs else {}
+        overlays = []
+        for filename in filenames:
+            base_entry = base_entries.get(filename)
+            src_entry = src_entries.get(filename)
+            if base_entry:
+                overlays.append(
+                    {
+                        "path": filename,
+                        "mode": base_entry["mode"],
+                        "type": base_entry["type"],
+                        "sha": base_entry["sha"],
+                    }
+                )
+            elif src_entry:
+                overlays.append(
+                    {
+                        "path": filename,
+                        "mode": src_entry["mode"],
+                        "type": src_entry["type"],
+                        "sha": None,
+                    }
+                )
+        if not overlays:
+            continue
+        r = http_request(
+            "POST",
+            f"{_API}/repos/{repo}/git/trees",
+            headers=h,
+            body={"base_tree": src_dirs[root], "tree": overlays},
+        )
+        if r.status_code >= 400:
+            raise GitHubAppError(
+                f"preserve base files in {root} -> {r.status_code} {r.text[:200]}"
+            )
+        effective_src_dirs[root] = r.json()["sha"]
+
     # 디렉터리 단위 tree SHA 교체 — source의 서브트리를 통째로 가리키므로
     # 파일 추가·수정·삭제가 모두 반영된다. source에 없는 디렉터리는 승격 대상이
     # 아니다(디렉터리 자체의 삭제 승격은 다루지 않는다 — 랩 범위 밖).
     entries = [
-        {"path": p, "mode": "040000", "type": "tree", "sha": src_dirs[p]}
+        {
+            "path": p,
+            "mode": "040000",
+            "type": "tree",
+            "sha": effective_src_dirs[p],
+        }
         for p in paths
-        if p in src_dirs and base_dirs.get(p) != src_dirs[p]
+        if p in effective_src_dirs and base_dirs.get(p) != effective_src_dirs[p]
     ]
     if not entries:
         return {"changed": False}

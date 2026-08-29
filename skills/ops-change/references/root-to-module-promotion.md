@@ -1,7 +1,8 @@
 # 승격을 위한 root→module 상태 주소 이전
 
 dev에서 `2-1-dev/` 독립 파일로 만든 리소스를 prod로 승격할 때, 승격 경로
-(`ops_github_open_promotion_pr`)는 modules/·ansible/의 dev↔main diff만 담는다. 따라서
+(`ops_github_open_promotion_pr`)는 modules/·ansible/의 dev↔main 코드 diff만 담되,
+환경별 정본인 `ansible/patch-extra-packages.yml`은 main 값을 보존한다. 따라서
 dev root(`2-1-dev/`)에만 있는 리소스는 그대로 승격되지 않는다 — 먼저 그 리소스를
 `modules/service/`로 이관하는 dev 코드 PR이 선행해야 한다. 이관은 기존 인프라를
 재생성하지 않고 Terraform state 주소만 옮기는 작업이다.

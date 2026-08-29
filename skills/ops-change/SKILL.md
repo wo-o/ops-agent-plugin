@@ -724,8 +724,9 @@ dev 브랜치의 `2-1-dev/`·`modules/`·`ansible/`는 CODEOWNERS 무소유라 �
 ## dev→main 승격 PR — prod 반영 (에이전트가 열고, 사람이 머지)
 
 `ops_github_open_promotion_pr`는 main HEAD에서 딴 스냅샷 브랜치에 dev의
-modules/·ansible/ 최종 상태만 담아 base=main PR을 연다 — dev 브랜치를 통째로
-올리지 않으므로 CODEOWNERS·워크플로·dev 전용 파일이 diff에 실리지 않고 머지
+modules/·ansible/ 코드 상태만 담아 base=main PR을 연다. 환경별 정본인
+`ansible/patch-extra-packages.yml`은 main 값을 보존한다 — dev 브랜치를 통째로
+올리지 않으므로 CODEOWNERS·워크플로·dev 전용 surface가 diff에 실리지 않고 머지
 충돌도 생기지 않는다. tf-plan이 prod plan을 PR 코멘트로 달아 사람이 반영될
 내용을 그대로 리뷰한다. auto-merge되지 않으며 main CODEOWNERS의 사람 승인이
 머지 게이트다: BLOCKED 상태로 기다리는 것이 정상이지 오류가 아니다. 머지되면
