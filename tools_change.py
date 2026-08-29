@@ -987,6 +987,9 @@ _PROMOTION_BRANCH_PREFIX = "promote/"
 # 충돌 시 tf-plan/guard가 못 돌아 플로우가 죽고, 충돌 없으면 dev의 무소유
 # CODEOWNERS가 main을 덮어 prod 게이트가 사라진다(2026-08-01 실측 — 스냅샷 전환 사유).
 _PROMOTION_PATHS = ("modules", "ansible")
+# 환경별 패키지 surface는 같은 경로를 dev/prod 정본 브랜치가 서로 다른 값으로
+# 사용한다. 코드 승격이 디렉터리 스냅샷을 만들 때도 main 값을 보존해야 한다.
+_PROMOTION_PRESERVE_PATHS = ("ansible/patch-extra-packages.yml",)
 
 
 def open_promotion_pr(args: dict, **kwargs: Any) -> str:
@@ -1044,6 +1047,7 @@ def open_promotion_pr(args: dict, **kwargs: Any) -> str:
             _PROMOTION_PATHS,
             f"{_PROMOTION_BRANCH_PREFIX}{int(time.time())}",
             title,
+            preserve_paths=_PROMOTION_PRESERVE_PATHS,
         )
         if not snapshot.get("changed"):
             return ok(
@@ -1062,8 +1066,8 @@ def open_promotion_pr(args: dict, **kwargs: Any) -> str:
             + (f"- correlation: {corr}\n" if corr else "")
             + "- Base: `main` — 머지되면 tf-apply(prod)가 실행됩니다.\n"
             "- 이 PR은 main HEAD 기반 스냅샷 브랜치로, dev에서 검증된 "
-            "modules/·ansible/ 최종 상태만 담습니다 — CODEOWNERS·워크플로·"
-            "dev 전용 파일은 실리지 않고, 충돌이 생기지 않습니다.\n"
+            "modules/·ansible/ 코드 상태만 담습니다 — 환경별 패키지 surface와 "
+            "CODEOWNERS·워크플로·dev 전용 파일은 실리지 않고, 충돌이 생기지 않습니다.\n"
         )
         pr = github_app.open_branch_pr(
             _repo(), snapshot["branch"], _PROMOTION_BASE, title, body

@@ -176,9 +176,15 @@ def test_promotion_opens_snapshot_pr(monkeypatch):
     )
     captured = {}
 
-    def fake_snapshot(repo, source, base, paths, branch, message):
+    def fake_snapshot(
+        repo, source, base, paths, branch, message, preserve_paths=()
+    ):
         captured.update(
-            source=source, snap_base=base, paths=tuple(paths), branch=branch
+            source=source,
+            snap_base=base,
+            paths=tuple(paths),
+            preserve_paths=tuple(preserve_paths),
+            branch=branch,
         )
         return {"changed": True, "branch": branch, "sha": "abc123"}
 
@@ -200,6 +206,7 @@ def test_promotion_opens_snapshot_pr(monkeypatch):
     # 스냅샷은 dev의 modules/·ansible/만, main 기반 promote/* 브랜치로 만든다
     assert captured["source"] == "dev" and captured["snap_base"] == "main"
     assert captured["paths"] == ("modules", "ansible")
+    assert captured["preserve_paths"] == ("ansible/patch-extra-packages.yml",)
     assert captured["branch"].startswith("promote/")
     # PR은 스냅샷 브랜치→main — dev 브랜치를 통째로 올리지 않는다
     assert captured["head"] == captured["branch"] and captured["base"] == "main"
@@ -240,7 +247,9 @@ def test_promotion_no_diff_reports_no_change(monkeypatch):
     monkeypatch.setattr(
         C.github_app,
         "create_snapshot_branch",
-        lambda repo, source, base, paths, branch, message: {"changed": False},
+        lambda repo, source, base, paths, branch, message, preserve_paths=(): {
+            "changed": False
+        },
     )
     d = _d(C.open_promotion_pr({"title": "t", "reason": "r"}))
     assert d["success"] is True and d["no_change"] is True
