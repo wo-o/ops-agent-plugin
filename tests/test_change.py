@@ -742,3 +742,17 @@ def test_skill_has_access_command_completeness_selfcheck():
     text = _ops_change_skill_text()
     assert "접근 명령 완결성" in text
     assert "placeholder" in text
+
+
+def test_skill_recovers_file_only_unregistered_playbook_request():
+    """Fresh Slack sessions must discover a file-only playbook before refusing.
+
+    E2E s13b says the playbook file exists but omits its name.  The agent must
+    compare the dev ansible directory with the manifest, register the unique
+    missing playbook through a code PR, and only then dispatch it.
+    """
+    text = _ops_change_skill_text()
+    assert "미등록 후보 탐색" in text
+    assert "ansible/ 디렉터리" in text
+    assert "유일한 미등록" in text
+    assert "등록 PR" in text and "재dispatch" in text
